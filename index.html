@@ -178,6 +178,7 @@ const LS = { get(k, d) { try { const v = localStorage.getItem("jv_" + k); return
              set(k, v) { try { localStorage.setItem("jv_" + k, JSON.stringify(v)); } catch {} } };
 const S = { memories: LS.get("memories", []), reminders: LS.get("reminders", []), chat: LS.get("chat", []), trades: LS.get("trades", []), alerts: LS.get("alerts", []), watch: LS.get("watch", ["XAUUSD", "BTCUSD", "EURUSD"]), contacts: LS.get("contacts", []), lists: LS.get("lists", {}) };
 const CFG = { key: LS.get("key", ""), model: LS.get("model", "auto"), tts: LS.get("tts", "openai"), voice: LS.get("voice", true), wake: LS.get("wake", true), td: LS.get("td", "") };
+if (!LS.get("wake_v2", false)) { CFG.wake = true; LS.set("wake", true); LS.set("wake_v2", true); }   // ascolto continuo acceso per tutti
 const save = () => { S.chat = S.chat.slice(-40); LS.set("memories", S.memories); LS.set("reminders", S.reminders); LS.set("chat", S.chat); LS.set("trades", S.trades); LS.set("alerts", S.alerts); LS.set("watch", S.watch); LS.set("contacts", S.contacts); LS.set("lists", S.lists); LS.set("updated", Date.now()); S._dirty = true; };
 let busy = false, pendingImage = null, viaVoice = false;
 
