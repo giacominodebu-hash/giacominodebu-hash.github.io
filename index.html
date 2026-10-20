@@ -160,7 +160,11 @@ pre{position:relative;font-family:var(--f-mono);font-size:12px;line-height:1.5;b
     <p class="note" id="tNote">Tocca i tre pulsanti uno alla volta e dimmi quali senti.</p>
     <h2>DIARIO DI TRADING <span id="trN">0</span></h2><div class="stats" id="trStats"></div><ul id="trList"></ul>
     <h2>ALLARMI DI PREZZO <span id="alN">0</span></h2><ul id="alList"></ul>
-    <h2>CONTATTI <span id="ctN">0</span></h2><ul id="ctList"></ul>
+    <h2>CONTATTI <span id="ctN">0</span></h2>
+    <div class="row" style="margin:0 0 8px"><button class="btn" id="vcfBtn" type="button">Importa la rubrica dell'iPhone</button></div>
+    <input type="file" id="vcfIn" accept=".vcf,text/vcard,text/x-vcard,text/directory" hidden>
+    <p class="note" id="vcfNote">App Contatti → tocca «Contatti» in alto (elenchi) → tieni premuto «Tutti i contatti» → Esporta → Salva su File. Poi premi il pulsante qui sopra e scegli il file.</p>
+    <ul id="ctList"></ul>
     <h2>LISTE <span id="lsN">0</span></h2><ul id="lsList"></ul>
     <h2>PROMEMORIA <span id="remN">0</span></h2><ul id="remList"></ul>
     <h2>COSA RICORDO DI TE <span id="memN">0</span></h2><ul id="memList"></ul>
@@ -809,6 +813,39 @@ $("pcBtn").onclick = async () => {
 };
 document.addEventListener("visibilitychange", () => { if (!document.hidden && PC.on && !PC.es) pcConnect(); });
 
+/* ---------- importa la rubrica (.vcf) ---------- */
+function parseVcf(text) {
+  const out = [], body = text.replace(/\r\n[ \t]/g, "").replace(/\n[ \t]/g, "");
+  for (const card of body.split(/BEGIN:VCARD/i).slice(1)) {
+    const lines = card.split(/\r?\n/), val = l => l.slice(l.indexOf(":") + 1).trim();
+    let name = (lines.find(l => /^FN[;:]/i.test(l)) || "");
+    name = name ? val(name) : "";
+    if (!name) { const n = lines.find(l => /^N[;:]/i.test(l)); if (n) name = val(n).split(";").slice(0, 2).reverse().join(" ").trim(); }
+    const tels = lines.filter(l => /^(item\d+\.)?TEL[;:]/i.test(l));
+    const tel = tels.find(l => /CELL|MOBILE|IPHONE/i.test(l)) || tels[0];
+    const em = lines.find(l => /^(item\d+\.)?EMAIL[;:]/i.test(l));
+    if (name && (tel || em)) out.push({ name: name.replace(/\\,/g, ",").replace(/\;/g, ";"), phone: tel ? normPhone(val(tel)) : undefined, email: em ? val(em) : undefined });
+  }
+  return out;
+}
+$("vcfBtn").onclick = () => $("vcfIn").click();
+$("vcfIn").onchange = async () => {
+  const f = $("vcfIn").files[0]; if (!f) return; $("vcfIn").value = "";
+  const list = parseVcf(await f.text());
+  if (!list.length) { $("vcfNote").textContent = "Nel file non ho trovato contatti con numero."; return; }
+  const byName = new Map(S.contacts.map(c => [c.name.toLowerCase(), c]));
+  list.forEach(c => { const o = byName.get(c.name.toLowerCase()); if (o) Object.assign(o, Object.fromEntries(Object.entries(c).filter(([, v]) => v))); else { S.contacts.push(c); byName.set(c.name.toLowerCase(), c); } });
+  save(); renderSheet();
+  let msg = `Importati ${list.length} contatti.`;
+  if (cleanCode(PC.code).length >= 20) {
+    try { await pcSetup(); if (!PC.es) pcConnect(); const id = rid(), p = pcWait(id, 30000, 30000);
+      await pcSend({ k: "contacts_put", id, contacts: list.filter(c => c.phone).map(c => ({ name: c.name, phone: c.phone })) }); const m = await p;
+      msg += ` Anche il PC li ha salvati (${m.saved}): ora puoi dire «scrivi a … su WhatsApp» col nome.`; }
+    catch { msg += " Il PC adesso non risponde: li mando al PC appena torna collegato (ripremi il pulsante)."; }
+  }
+  $("vcfNote").textContent = msg; addMsg("s", msg);
+};
+
 /* ---------- memoria, promemoria, impostazioni ---------- */
 function renderSheet() {
   const now = Date.now(); $("remN").textContent = S.reminders.length; $("memN").textContent = S.memories.length;
@@ -825,7 +862,7 @@ function renderSheet() {
     t => new Date(t.ts).toLocaleString("it-IT", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) + (t.entry ? ` · ${t.entry} → ${t.exit ?? "?"}` : ""), t => { S.trades = S.trades.filter(x => x.id !== t.id); save(); renderSheet(); });
   mk($("alList"), S.alerts.map(a => ({ ...a, text: `${a.symbol} ${a.op} ${a.level}` })), "Nessun allarme. Prova: «avvisami se l'oro va sopra 4200».", a => a.note || "controllo ogni minuto", a => { S.alerts = S.alerts.filter(x => x.id !== a.id); save(); renderSheet(); });
   $("ctN").textContent = S.contacts.length; $("lsN").textContent = Object.keys(S.lists).length;
-  mk($("ctList"), S.contacts.map(c => ({ ...c, text: c.name })), "Nessun contatto. Dimmi «salva Marco 333 1234567».", c => [c.phone, c.email].filter(Boolean).join(" · "), c => { S.contacts = S.contacts.filter(x => x.name !== c.name); save(); renderSheet(); });
+  mk($("ctList"), S.contacts.slice(0, 40).map(c => ({ ...c, text: c.name })), "Nessun contatto. Dimmi «salva Marco 333 1234567».", c => [c.phone, c.email].filter(Boolean).join(" · "), c => { S.contacts = S.contacts.filter(x => x.name !== c.name); save(); renderSheet(); });
   mk($("lsList"), Object.entries(S.lists).map(([k, v]) => ({ k, text: k[0].toUpperCase() + k.slice(1) })), "Nessuna lista. Prova: «aggiungi latte e pane alla spesa».", x => S.lists[x.k].join(", ") || "vuota", x => { delete S.lists[x.k]; save(); renderSheet(); });
   mk($("memList"), S.memories, "Ancora niente. Dimmi «ricorda che…».", m => new Date(m.ts).toLocaleDateString("it-IT"), (m, i) => { S.memories.splice(i, 1); save(); renderSheet(); });
 }
