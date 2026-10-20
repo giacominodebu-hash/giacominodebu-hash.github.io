@@ -282,6 +282,16 @@ async function speakNow(say, fromTap) {
     try { if (await playWebAudio(buf)) return; } catch {}
   }
   try { await phoneVoice(say); return; } catch {}
+  // iPhone senza tocco: Safari lascia suonare l'audio mentre il microfono è aperto, quindi lo apro un attimo e riprovo
+  if (buf && !fromTap && IOS && navigator.mediaDevices?.getUserMedia) {
+    let stream = null;
+    try {
+      stream = await Promise.race([navigator.mediaDevices.getUserMedia({ audio: true }), new Promise((_, ko) => setTimeout(() => ko(new Error("t")), 2500))]);
+      const stop = () => { try { stream.getTracks().forEach(t => t.stop()); } catch {} };
+      await playElement(buf); player.addEventListener("ended", stop, { once: true }); player.addEventListener("error", stop, { once: true }); setTimeout(stop, 120000);
+      unlocked = true; return;
+    } catch { try { stream && stream.getTracks().forEach(t => t.stop()); } catch {} }
+  }
   if (!fromTap) needTapToHear(say); else { setState(null); afterSpeak(); }
 }
 
