@@ -47,6 +47,7 @@ body.speaking .glow{animation-duration:.7s}body.listening{--core:var(--green)}bo
 .txt p{margin:0 0 6px;white-space:pre-wrap}.txt img{border-radius:6px;border:1px solid var(--line);max-height:180px;margin-top:4px;max-width:100%}
 pre{position:relative;font-family:var(--f-mono);font-size:12px;line-height:1.5;background:#020a12;border:1px solid var(--line);border-radius:6px;padding:28px 11px 11px;overflow-x:auto;margin:6px 0;text-align:left}
 .cp{position:absolute;top:5px;right:5px;font-family:var(--f-head);font-size:8.5px;letter-spacing:.15em;background:rgba(70,225,255,.12);border:1px solid var(--line);border-radius:4px;padding:4px 7px;cursor:pointer}
+.say{margin-top:4px;background:none;border:1px solid var(--line);border-radius:6px;padding:3px 9px;font-family:var(--f-head);font-size:9px;letter-spacing:.18em;color:var(--cyan);cursor:pointer}
 .k{color:#ff86c0}.st{color:#a3ffb8}.cm{color:#5e8597;font-style:italic}.nu{color:#ffd27a}
 .chips{display:flex;gap:6px;overflow-x:auto;padding-block:4px 8px;scrollbar-width:none}.chips::-webkit-scrollbar{display:none}
 .chip{flex-shrink:0;background:rgba(70,225,255,.07);border:1px solid var(--line);border-radius:999px;padding:7px 12px;font-size:14.5px;font-weight:600;cursor:pointer;white-space:nowrap}
@@ -156,7 +157,7 @@ let busy = false, pendingImage = null, viaVoice = false;
 /* ---------- interfaccia ---------- */
 let mode = null;
 function setState(s) { mode = s; ["thinking", "speaking", "listening"].forEach(c => document.body.classList.toggle(c, s === c));
-  $("state").textContent = s === "thinking" ? "ELABORAZIONE" : s === "speaking" ? "IN COMUNICAZIONE" : s === "listening" ? "TI ASCOLTO" : CFG.wake ? "DI' «HEY JARVIS»" : "IN LINEA"; }
+  $("state").textContent = s === "thinking" ? "ELABORAZIONE" : s === "speaking" ? "IN COMUNICAZIONE" : s === "listening" ? "TI ASCOLTO" : CFG.wake ? (needTap ? "TOCCA IL NUCLEO PER ASCOLTARE" : "DI' «HEY JARVIS»") : "IN LINEA"; }
 const esc = t => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const PY = /(#[^\n]*)|("""[\s\S]*?"""|'''[\s\S]*?'''|"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*')|\b(def|class|return|if|elif|else|for|while|in|import|from|as|with|try|except|raise|lambda|and|or|not|is|None|True|False|pass|break|continue)\b|\b(\d+(?:\.\d+)?)\b/g;
 const hl = c => esc(c).replace(PY, (m, a, b, k, n) => a ? `<span class="cm">${a}</span>` : b ? `<span class="st">${b}</span>` : k ? `<span class="k">${k}</span>` : `<span class="nu">${n}</span>`);
@@ -179,6 +180,7 @@ function addMsg(who, text, img) {
   const n = document.createElement("span"); n.className = "who"; n.textContent = who === "u" ? "TU" : who === "s" ? "SISTEMA" : "J.A.R.V.I.S.";
   const t = document.createElement("div"); t.className = "txt";
   if (who === "u") { const p = document.createElement("p"); p.textContent = text; t.appendChild(p); } else render(t, text);
+  if (who === "j" && text) { const b = document.createElement("button"); b.type = "button"; b.className = "say"; b.textContent = "▶ ASCOLTA"; b.onclick = () => { unlockAudio(true); speak(text); }; t.appendChild(b); }
   if (img) { const i = document.createElement("img"); i.src = img; i.alt = "Grafico allegato"; t.appendChild(i); }
   w.append(n, t); $("log").appendChild(w); scroll(); return t;
 }
@@ -193,7 +195,8 @@ function stopSpeaking() { try { speechSynthesis.cancel(); } catch {} try { playe
 async function speak(text) {
   const say = speakable(text);
   if (!CFG.voice || !say) { afterSpeak(); return; }
-  stopWake(); stopSpeaking();
+  const wasMic = !!wakeRec || listening; stopWake(); stopSpeaking();
+  if (wasMic) await new Promise(r => setTimeout(r, 350));   // iPhone: lascia liberare il microfono prima di parlare
   if (CFG.tts === "openai" && CFG.key) {
     try {
       const r = await fetch("https://api.openai.com/v1/audio/speech", { method: "POST", headers: { "Authorization": "Bearer " + CFG.key, "Content-Type": "application/json" },
@@ -204,7 +207,7 @@ async function speak(text) {
       player.src = url;
       player.onplay = () => setState("speaking");
       player.onended = player.onerror = () => { URL.revokeObjectURL(url); setState(null); afterSpeak(); };
-      await player.play(); return;
+      try { await player.play(); return; } catch { URL.revokeObjectURL(url); player.onended = player.onerror = null; $("heard").textContent = "Tocca ▶ ASCOLTA per sentire la risposta"; }
     } catch { /* ripiego sulla voce del telefono */ }
   }
   try {
@@ -216,13 +219,24 @@ async function speak(text) {
   } catch { setState(null); afterSpeak(); }
 }
 
+const IOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const SILENT = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
+let unlocked = false;
+function unlockAudio(force) {   // iPhone: l'audio si sblocca solo con un tocco
+  if ((unlocked && !force) || mode === "speaking") return; unlocked = true;
+  try { if (player.paused) { player.src = SILENT; player.play().catch(() => { unlocked = false; }); } } catch {}
+  try { const u = new SpeechSynthesisUtterance(" "); u.volume = 0; speechSynthesis.speak(u); } catch {}
+}
+document.addEventListener("touchend", () => unlockAudio(), true);
+document.addEventListener("click", () => unlockAudio(), true);
+
 /* ---------- ascolto: pulsante e "Hey Jarvis" ---------- */
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 const WAKE = /(?:^|\s)(?:hey|ehi|ehy|hei|ei|ok|okay|ciao)?\s*(?:jarvis|jarvi|giarvis|jervis|gervis|jarvisse|giarvi|charvis)\b[\s,.!?]*/i;
 let rec = null, wakeRec = null, listening = false, convo = false, manualStop = false, wakeLock = null, micDenied = false;
 function micProblem(err) {
   if (err === "not-allowed" || err === "service-not-allowed") { micDenied = true; CFG.wake = false; LS.set("wake", false); setWakeBtn();
-    toast("MICROFONO", "Chrome ha bloccato il microfono. Tocca il lucchetto accanto all'indirizzo → Autorizzazioni → Microfono → Consenti, poi ricarica.", 12000); }
+    toast("MICROFONO", IOS ? "L'iPhone ha bloccato il microfono. Vai in Impostazioni → App → Safari → Microfono: Consenti, e in Impostazioni → Privacy e sicurezza → Riconoscimento vocale: attiva Safari. Poi ricarica la pagina." : "Chrome ha bloccato il microfono. Tocca il lucchetto accanto all'indirizzo → Autorizzazioni → Microfono → Consenti, poi ricarica.", 14000); }
 }
 function listen() {
   if (!SR) { toast("VOCE", "Questo browser non riconosce la voce: apri la pagina con Google Chrome."); return; }
@@ -234,30 +248,39 @@ function listen() {
   rec.onerror = e => micProblem(e.error);
   rec.onend = () => {
     listening = false; $("micBtn").classList.remove("on"); if (mode === "listening") setState(null);
-    const t = (finalText || "").trim(); $("heard").textContent = "";
+    const t = (finalText || $("heard").textContent || "").trim(); $("heard").textContent = "";
     if (t) { convo = !manualStop; viaVoice = true; ask(t); } else { convo = false; resumeWake(); }
   };
   try { rec.start(); listening = true; $("micBtn").classList.add("on"); setState("listening"); } catch { resumeWake(); }
 }
 function afterSpeak() { if (convo && !busy && !micDenied) setTimeout(listen, 350); else resumeWake(); }
-function startWake() {
+let needTap = false;
+function startWake(fromTap) {
   if (!CFG.wake || !SR || micDenied || wakeRec || listening || busy || mode === "speaking" || document.hidden) return;
-  const r = new SR(); r.lang = "it-IT"; r.continuous = true; r.interimResults = true; wakeRec = r; let fired = false;
-  r.onresult = e => {
-    for (let i = e.resultIndex; i < e.results.length; i++) {
-      const res = e.results[i], t = res[0].transcript, m = t.match(WAKE);
-      if (!m || fired) continue;
-      const cmd = t.slice(m.index + m[0].length).trim();
-      $("heard").textContent = t;
-      if (!res.isFinal) continue;                  // aspetta la fine della frase
-      fired = true; stopWake(); convo = true; $("heard").textContent = "";
-      if (cmd.length > 2) { viaVoice = true; ask(cmd); } else speak(pick(["Sì, signore?", "Mi dica.", "Sono qui, signore."]));
-      return;
-    }
+  const r = new SR(); r.lang = "it-IT"; r.continuous = true; r.interimResults = true; wakeRec = r;
+  let fired = false, armed = false, cmd = "", timer = null;
+  const fire = () => {
+    if (fired) return; fired = true; clearTimeout(timer); stopWake(); convo = true; $("heard").textContent = "";
+    const c = cmd.trim();
+    if (c.length > 2) { viaVoice = true; ask(c); } else speak(pick(["Sì, signore?", "Mi dica.", "Sono qui, signore."]));
   };
-  r.onerror = e => micProblem(e.error);
-  r.onend = () => { if (wakeRec === r) wakeRec = null; if (!fired) setTimeout(startWake, 300); };
-  try { r.start(); } catch { wakeRec = null; setTimeout(startWake, 1500); }
+  r.onresult = e => {
+    let t = ""; for (let i = 0; i < e.results.length; i++) t += e.results[i][0].transcript + " ";
+    const all = [...t.matchAll(new RegExp(WAKE.source, "gi"))];
+    if (!all.length) return;
+    const m = all[all.length - 1]; armed = true; cmd = t.slice(m.index + m[0].length);
+    $("heard").textContent = "«" + t.slice(m.index).trim() + "»";
+    clearTimeout(timer);
+    timer = setTimeout(fire, e.results[e.results.length - 1].isFinal ? 500 : 1500);   // aspetta che tu finisca la frase
+  };
+  r.onerror = e => { if (e.error === "no-speech" || e.error === "aborted") return; wakeIssue(e.error, fromTap); };
+  r.onend = () => { if (wakeRec === r) wakeRec = null; if (fired) return; if (armed) { fire(); return; } if (!needTap) setTimeout(() => startWake(false), 300); };
+  try { r.start(); needTap = false; if (!mode) setState(null); } catch { wakeRec = null; wakeIssue("start", fromTap); }
+}
+function wakeIssue(err, fromTap) {
+  if ((err === "not-allowed" || err === "service-not-allowed") && fromTap) { micProblem(err); return; }
+  needTap = true; if (!mode) setState(null);
+  $("heard").textContent = err === "start" ? "" : "microfono: " + err;
 }
 function stopWake() { const r = wakeRec; wakeRec = null; if (r) try { r.abort(); } catch {} }
 function resumeWake() { if (CFG.wake) setTimeout(startWake, 500); }
@@ -267,11 +290,11 @@ function setWakeBtn() { $("wakeBtn").setAttribute("aria-pressed", String(CFG.wak
 $("wakeBtn").onclick = () => {
   if (!SR) { toast("VOCE", "Per «Hey Jarvis» serve Google Chrome."); return; }
   micDenied = false; CFG.wake = !CFG.wake; LS.set("wake", CFG.wake); setWakeBtn();
-  if (CFG.wake) { startWake(); keepAwake(); toast("HEY JARVIS", "Ti ascolto: di' «Hey Jarvis» e poi la domanda. Tieni la pagina aperta e lo schermo acceso."); }
+  if (CFG.wake) { needTap = false; startWake(true); keepAwake(); toast("HEY JARVIS", "Ti ascolto: di' «Hey Jarvis» e poi la domanda. Tieni la pagina aperta e lo schermo acceso."); }
   else { stopWake(); try { wakeLock && wakeLock.release(); } catch {} wakeLock = null; }
 };
 $("micBtn").onclick = () => { micDenied = false; if (listening) { manualStop = true; try { rec.stop(); } catch {} return; } convo = false; listen(); };
-$("core").onclick = () => $("micBtn").click();
+$("core").onclick = () => { if (CFG.wake && needTap) { needTap = false; startWake(true); } else $("micBtn").click(); };
 $("core").onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $("micBtn").click(); } };
 document.addEventListener("visibilitychange", () => { if (document.hidden) stopWake(); else { keepAwake(); resumeWake(); } });
 
@@ -407,7 +430,8 @@ const tick = () => { $("clock").textContent = new Date().toLocaleString("it-IT",
   if (S.chat.length) { addMsg("s", "Ultima conversazione:"); S.chat.slice(-6).forEach(m => addMsg(m.role === "user" ? "u" : "j", m.content)); }
   renderSheet(); checkReminders(); setInterval(checkReminders, 20000);
   if (!CFG.key) openSheet();
-  if (CFG.wake && SR) { startWake(); keepAwake(); document.addEventListener("pointerdown", () => { startWake(); keepAwake(); }, { once: true }); }
+  if (CFG.wake && SR) { startWake(false); keepAwake(); document.addEventListener("pointerdown", () => { needTap = false; startWake(true); keepAwake(); }, { once: true }); }
+  if (!SR) addMsg("s", IOS ? "Su iPhone per parlarmi apri questa pagina direttamente in Safari (non dall'icona della Home)." : "Per parlarmi apri questa pagina con Google Chrome.");
   try { speechSynthesis.getVoices(); } catch {}
 })();
 </script>
