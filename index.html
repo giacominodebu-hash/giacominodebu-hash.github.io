@@ -205,37 +205,59 @@ async function playWebAudio(buf) {   // iPhone: Web Audio, sbloccato al primo to
   src.onended = () => { if (curSrc === src) curSrc = null; setState(null); afterSpeak(); };
   setState("speaking"); src.start(0); return true;
 }
+let pendingSay = null;
+function needTapToHear(say) {   // ultimo ripiego: l'iPhone vuole un tocco, basta toccare un punto qualsiasi
+  pendingSay = say; setState(null); $("state").textContent = "TOCCA LO SCHERMO PER SENTIRE"; document.body.classList.add("speaking");
+}
+document.addEventListener("touchend", () => { if (!pendingSay) return; const t = pendingSay; pendingSay = null; document.body.classList.remove("speaking"); unlockAudio(true); speakNow(t, true); }, true);
+async function ttsAudio(say) {
+  const r = await fetch("https://api.openai.com/v1/audio/speech", { method: "POST", headers: { "Authorization": "Bearer " + CFG.key, "Content-Type": "application/json" },
+    body: JSON.stringify({ model: "gpt-4o-mini-tts", voice: "onyx", input: say, response_format: "mp3",
+      instructions: "Parla in italiano con voce maschile calma, raffinata e sicura, come un maggiordomo britannico tecnologico. Ritmo naturale, leggermente ironico." }) });
+  if (!r.ok) { $("heard").textContent = "voce OpenAI: errore " + r.status + (r.status === 429 ? " (credito finito?)" : ""); throw new Error(r.status); }
+  return r.arrayBuffer();
+}
+function playElement(buf) {   // lettore audio già "sbloccato" dal primo tocco
+  return new Promise((ok, ko) => {
+    const url = URL.createObjectURL(new Blob([buf], { type: "audio/mpeg" }));
+    player.onplaying = () => setState("speaking");
+    player.onended = () => { URL.revokeObjectURL(url); player.onended = null; setState(null); afterSpeak(); };
+    player.onerror = () => { URL.revokeObjectURL(url); ko(new Error("audio")); };
+    player.src = url; player.play().then(ok, e => { URL.revokeObjectURL(url); ko(e); });
+  });
+}
+function phoneVoice(say) {
+  return new Promise((ok, ko) => {
+    const u = new SpeechSynthesisUtterance(say); u.lang = "it-IT"; u.rate = 1.03; u.pitch = .92;
+    const v = speechSynthesis.getVoices().filter(v => /^it/i.test(v.lang));
+    u.voice = v.find(x => /luca|diego|cosimo|giorgio|male|uomo/i.test(x.name)) || v[0] || null;
+    let started = false; const guard = setTimeout(() => { if (!started) { try { speechSynthesis.cancel(); } catch {} ko(new Error("bloccata")); } }, 1800);
+    u.onstart = () => { started = true; clearTimeout(guard); setState("speaking"); ok(); };
+    u.onend = () => { setState(null); afterSpeak(); };
+    u.onerror = e => { clearTimeout(guard); if (!started) ko(new Error(e.error)); else { setState(null); afterSpeak(); } };
+    speechSynthesis.speak(u);
+  });
+}
 async function speak(text) {
   const say = speakable(text);
   if (!CFG.voice || !say) { afterSpeak(); return; }
   const wasMic = !!wakeRec || listening; stopWake(); stopSpeaking();
-  if (wasMic) await new Promise(r => setTimeout(r, 350));   // iPhone: lascia liberare il microfono prima di parlare
-  if (CFG.tts === "openai" && CFG.key) {
-    try {
-      const r = await fetch("https://api.openai.com/v1/audio/speech", { method: "POST", headers: { "Authorization": "Bearer " + CFG.key, "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "gpt-4o-mini-tts", voice: "onyx", input: say, response_format: "mp3",
-          instructions: "Parla in italiano con voce maschile calma, raffinata e sicura, come un maggiordomo britannico tecnologico. Ritmo naturale, leggermente ironico." }) });
-      if (!r.ok) { $("heard").textContent = "voce OpenAI: errore " + r.status + (r.status === 429 ? " (credito finito?)" : ""); throw new Error(r.status); }
-      const buf = await r.arrayBuffer();
-      try { if (await playWebAudio(buf)) return; } catch (e) { $("heard").textContent = "voce: " + (e.message || e); }
-      const url = URL.createObjectURL(new Blob([buf], { type: "audio/mpeg" }));
-      player.src = url;
-      player.onplay = () => setState("speaking");
-      player.onended = player.onerror = () => { URL.revokeObjectURL(url); setState(null); afterSpeak(); };
-      try { await player.play(); return; } catch { URL.revokeObjectURL(url); player.onended = player.onerror = null; $("heard").textContent = "Tocca ▶ ASCOLTA per sentire la risposta"; }
-    } catch { /* ripiego sulla voce del telefono */ }
+  if (wasMic) await new Promise(r => setTimeout(r, IOS ? 900 : 300));   // iPhone: lascia liberare il microfono
+  return speakNow(say, false);
+}
+async function speakNow(say, fromTap) {
+  let buf = null;
+  if (CFG.tts === "openai" && CFG.key) { try { buf = await ttsAudio(say); } catch {} }
+  if (buf) {
+    try { await playElement(buf); return; } catch {}
+    try { if (await playWebAudio(buf)) return; } catch {}
   }
-  try {
-    const u = new SpeechSynthesisUtterance(say); u.lang = "it-IT"; u.rate = 1.03; u.pitch = .92;
-    const v = speechSynthesis.getVoices().filter(v => /^it/i.test(v.lang));
-    u.voice = v.find(x => /luca|diego|cosimo|giorgio|male|uomo/i.test(x.name)) || v[0] || null;
-    u.onstart = () => setState("speaking"); u.onend = u.onerror = () => { setState(null); afterSpeak(); };
-    speechSynthesis.speak(u);
-  } catch { setState(null); afterSpeak(); }
+  try { await phoneVoice(say); return; } catch {}
+  if (!fromTap) needTapToHear(say); else { setState(null); afterSpeak(); }
 }
 
 const IOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-const SILENT = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
+const SILENT = "data:audio/wav;base64,UklGRoQJAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YWAJAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIA=";
 let unlocked = false;
 function unlockAudio(force) {   // iPhone: l'audio si sblocca solo con un tocco
   if (actx && actx.state !== "running") { try { actx.resume(); } catch {} }
