@@ -191,7 +191,17 @@ function toast(title, text, ms = 7000) { const t = document.createElement("div")
 /* ---------- voce in uscita ---------- */
 const player = $("player");
 function speakable(t) { return String(t).replace(/```[\s\S]*?(```|$)/g, " ").replace(/\*\*/g, "").replace(/https?:\/\/\S+/g, "il link").replace(/\s+/g, " ").trim().slice(0, 700); }
-function stopSpeaking() { try { speechSynthesis.cancel(); } catch {} try { player.pause(); } catch {} }
+let actx = null, curSrc = null;
+function stopSpeaking() { try { speechSynthesis.cancel(); } catch {} try { player.pause(); } catch {} try { curSrc && curSrc.stop(); } catch {} curSrc = null; }
+async function playWebAudio(buf) {   // iPhone: Web Audio, sbloccato al primo tocco, suona anche dopo il microfono
+  if (!actx) return false;
+  try { if (actx.state !== "running") await Promise.race([actx.resume(), new Promise(r => setTimeout(r, 600))]); } catch {}
+  if (actx.state !== "running") return false;
+  const audio = await actx.decodeAudioData(buf.slice(0));
+  const src = actx.createBufferSource(); src.buffer = audio; src.connect(actx.destination); curSrc = src;
+  src.onended = () => { if (curSrc === src) curSrc = null; setState(null); afterSpeak(); };
+  setState("speaking"); src.start(0); return true;
+}
 async function speak(text) {
   const say = speakable(text);
   if (!CFG.voice || !say) { afterSpeak(); return; }
@@ -202,8 +212,10 @@ async function speak(text) {
       const r = await fetch("https://api.openai.com/v1/audio/speech", { method: "POST", headers: { "Authorization": "Bearer " + CFG.key, "Content-Type": "application/json" },
         body: JSON.stringify({ model: "gpt-4o-mini-tts", voice: "onyx", input: say, response_format: "mp3",
           instructions: "Parla in italiano con voce maschile calma, raffinata e sicura, come un maggiordomo britannico tecnologico. Ritmo naturale, leggermente ironico." }) });
-      if (!r.ok) throw new Error(r.status);
-      const url = URL.createObjectURL(await r.blob());
+      if (!r.ok) { $("heard").textContent = "voce OpenAI: errore " + r.status + (r.status === 429 ? " (credito finito?)" : ""); throw new Error(r.status); }
+      const buf = await r.arrayBuffer();
+      try { if (await playWebAudio(buf)) return; } catch (e) { $("heard").textContent = "voce: " + (e.message || e); }
+      const url = URL.createObjectURL(new Blob([buf], { type: "audio/mpeg" }));
       player.src = url;
       player.onplay = () => setState("speaking");
       player.onended = player.onerror = () => { URL.revokeObjectURL(url); setState(null); afterSpeak(); };
@@ -223,8 +235,11 @@ const IOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform 
 const SILENT = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
 let unlocked = false;
 function unlockAudio(force) {   // iPhone: l'audio si sblocca solo con un tocco
+  if (actx && actx.state !== "running") { try { actx.resume(); } catch {} }
   if ((unlocked && !force) || mode === "speaking") return; unlocked = true;
   try { if (player.paused) { player.src = SILENT; player.play().catch(() => { unlocked = false; }); } } catch {}
+  try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); if (actx.state !== "running") actx.resume();
+    const b = actx.createBuffer(1, 1, 22050), src = actx.createBufferSource(); src.buffer = b; src.connect(actx.destination); src.start(0); } catch {}
   try { const u = new SpeechSynthesisUtterance(" "); u.volume = 0; speechSynthesis.speak(u); } catch {}
 }
 document.addEventListener("touchend", () => unlockAudio(), true);
