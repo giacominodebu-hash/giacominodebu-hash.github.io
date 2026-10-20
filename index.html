@@ -26,6 +26,7 @@ header{display:flex;align-items:center;justify-content:space-between;gap:10px;pa
 .hbtns{display:flex;gap:6px}
 .ib{background:rgba(70,225,255,.08);border:1px solid var(--line);border-radius:8px;width:40px;height:40px;display:grid;place-items:center;cursor:pointer;font-size:17px;padding:0}
 .ib[aria-pressed="false"]{opacity:.5}
+.ib.pc[aria-pressed="true"]{border-color:var(--amber);box-shadow:0 0 12px rgba(255,184,77,.45)}
 .ib.wake[aria-pressed="true"]{border-color:var(--green);box-shadow:0 0 12px rgba(98,245,180,.45)}
 :focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
 .core-wrap{display:flex;flex-direction:column;align-items:center;padding-block:10px 4px;flex-shrink:0}
@@ -93,6 +94,7 @@ pre{position:relative;font-family:var(--f-mono);font-size:12px;line-height:1.5;b
     <div><div class="brand">J.A.R.V.I.S.</div><div class="clock" id="clock">--:--</div></div>
     <div class="hbtns">
       <button class="ib wake" id="wakeBtn" aria-pressed="false" title="Ascolto continuo «Hey Jarvis»" aria-label="Ascolto continuo Hey Jarvis">👂</button>
+      <button class="ib pc" id="pcBtn" aria-pressed="false" title="Fai lavorare il PC" aria-label="Modalità PC">💻</button>
       <button class="ib" id="voiceBtn" aria-pressed="true" title="Voce di JARVIS" aria-label="Voce di JARVIS">🔊</button>
       <button class="ib" id="memBtn" title="Memoria e impostazioni" aria-label="Memoria e impostazioni">☰</button>
     </div>
@@ -147,6 +149,8 @@ pre{position:relative;font-family:var(--f-mono);font-size:12px;line-height:1.5;b
       <option value="openai">Voce JARVIS (OpenAI, più naturale)</option>
       <option value="browser">Voce del telefono (gratis)</option>
     </select>
+    <label for="pcIn">Codice del PC (lo trovi sul PC: tasto 📱 di JARVIS)</label>
+    <input id="pcIn" type="text" placeholder="XXXXX-XXXXX-XXXXX-XXXXX" autocomplete="off" autocapitalize="characters" spellcheck="false">
     <label for="tdIn">Chiave Twelve Data (gratis su twelvedata.com: oro e forex in tempo reale)</label>
     <input id="tdIn" type="password" placeholder="facoltativa" autocomplete="off">
     <div class="row"><button class="btn" id="saveKey" type="button">Salva</button><button class="btn" id="testKey" type="button">Prova la chiave</button></div>
@@ -180,7 +184,7 @@ let busy = false, pendingImage = null, viaVoice = false;
 /* ---------- interfaccia ---------- */
 let mode = null;
 function setState(s) { mode = s; ["thinking", "speaking", "listening"].forEach(c => document.body.classList.toggle(c, s === c));
-  $("state").textContent = s === "thinking" ? "ELABORAZIONE" : s === "speaking" ? "IN COMUNICAZIONE" : s === "listening" ? "TI ASCOLTO" : CFG.wake ? (needTap ? "TOCCA IL NUCLEO PER ASCOLTARE" : "DI' «HEY JARVIS»") : "IN LINEA"; }
+  $("state").textContent = s === "thinking" ? "ELABORAZIONE" : s === "speaking" ? "IN COMUNICAZIONE" : s === "listening" ? "TI ASCOLTO" : (PC.on ? "PC · " : "") + (CFG.wake ? (needTap ? "TOCCA IL NUCLEO PER ASCOLTARE" : "DI' «HEY JARVIS»") : PC.on ? (PC.online ? "COLLEGATO" : "IN COLLEGAMENTO…") : "IN LINEA"); }
 const esc = t => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const PY = /(#[^\n]*)|("""[\s\S]*?"""|'''[\s\S]*?'''|"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*')|\b(def|class|return|if|elif|else|for|while|in|import|from|as|with|try|except|raise|lambda|and|or|not|is|None|True|False|pass|break|continue)\b|\b(\d+(?:\.\d+)?)\b/g;
 const hl = c => esc(c).replace(PY, (m, a, b, k, n) => a ? `<span class="cm">${a}</span>` : b ? `<span class="st">${b}</span>` : k ? `<span class="k">${k}</span>` : `<span class="nu">${n}</span>`);
@@ -625,6 +629,7 @@ const fileToDataURL = f => new Promise((ok, ko) => { const fr = new FileReader()
 async function ask(text) {
   text = (text ?? $("msg").value).trim();
   if ((!text && !pendingImage) || busy) return;
+  if (PC.on && !pendingImage) return askPC(text);
   if (!CFG.key) { addMsg("s", "Manca la chiave OpenAI: apri ☰ e incollala in Impostazioni."); openSheet(); return; }
   stopWake(); stopSpeaking();
   const img = pendingImage; pendingImage = null; $("photoBtn").textContent = "📷";
@@ -666,6 +671,110 @@ async function ask(text) {
   } finally { busy = false; viaVoice = false; $("send").disabled = false; scroll(); }
 }
 
+/* ---------- modalità PC: il telefono parla, il PC lavora (via ntfy.sh, cifrato AES-GCM) ---------- */
+const PC = { code: LS.get("pccode", ""), on: LS.get("pcmode", false), since: LS.get("pcsince", "2m"), key: null, cmd: "", rep: "", es: null, parts: {}, waits: {}, seen: new Set(), online: false };
+const ALPH = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789", NTFY = "https://ntfy.sh/";
+const cleanCode = c => String(c || "").toUpperCase().split("").filter(ch => ALPH.includes(ch)).join("");
+const enc = new TextEncoder(), dec = new TextDecoder();
+const sha = async t => new Uint8Array(await crypto.subtle.digest("SHA-256", enc.encode(t)));
+const hex = b => Array.from(b, x => x.toString(16).padStart(2, "0")).join("");
+const b64e = b => { let s = ""; for (let i = 0; i < b.length; i += 8192) s += String.fromCharCode.apply(null, b.subarray(i, i + 8192)); return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""); };
+const b64d = t => { t = t.replace(/-/g, "+").replace(/_/g, "/"); t += "=".repeat((4 - t.length % 4) % 4); const bin = atob(t), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; };
+const rid = () => hex(crypto.getRandomValues(new Uint8Array(6)));
+async function pcSetup() {
+  const c = cleanCode(PC.code); if (c.length < 20) return false;
+  PC.cmd = "jv" + hex(await sha("cmd:" + c)).slice(0, 30); PC.rep = "jv" + hex(await sha("rep:" + c)).slice(0, 30);
+  PC.key = await crypto.subtle.importKey("raw", await sha("key:" + c), "AES-GCM", false, ["encrypt", "decrypt"]); return true;
+}
+async function pcSend(obj) {
+  obj = { ...obj, ts: Date.now(), id: obj.id || rid() };
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, PC.key, enc.encode(JSON.stringify(obj))));
+  const all = new Uint8Array(12 + ct.length); all.set(iv); all.set(ct, 12);
+  const blob = b64e(all), pid = rid(), n = Math.max(1, Math.ceil(blob.length / 3500));
+  for (let i = 0; i < n; i++) { const r = await fetch(NTFY + PC.cmd, { method: "POST", body: JSON.stringify({ p: pid, i, n, d: blob.slice(i * 3500, (i + 1) * 3500) }) });
+    if (!r.ok) throw new Error(r.status === 429 ? "troppi messaggi oggi sul servizio gratuito ntfy, riprova più tardi" : "rete " + r.status); }
+  return obj.id;
+}
+async function pcIncoming(wrapper) {
+  let w; try { w = JSON.parse(wrapper); } catch { return; }
+  let blob = w.d;
+  if (w.n > 1) { const box = PC.parts[w.p] = PC.parts[w.p] || {}; box[w.i] = w.d; if (Object.keys(box).length < w.n) return; blob = Array.from({ length: w.n }, (_, i) => box[i]).join(""); delete PC.parts[w.p]; }
+  let m; try { const raw = b64d(blob); m = JSON.parse(dec.decode(await crypto.subtle.decrypt({ name: "AES-GCM", iv: raw.slice(0, 12) }, PC.key, raw.slice(12)))); } catch { return; }
+  if (Math.abs(Date.now() - m.ts) > 15 * 60e3 || PC.seen.has(m.id)) return; PC.seen.add(m.id);
+  if (m.k === "pong") { PC.online = true; if (!mode) setState(null); const wt = PC.waits["ping"]; if (wt) wt.ok(m); return; }
+  const wt = PC.waits[m.re];
+  if (m.k === "ack") { if (wt) wt.ack(); return; }
+  if (m.k === "reply") { if (wt) wt.ok(m); else showPcReply(m, true); }
+}
+function pcConnect() {
+  if (PC.es) PC.es.close();
+  const es = new EventSource(`${NTFY}${PC.rep}/sse?since=${encodeURIComponent(PC.since)}`); PC.es = es;
+  es.onmessage = e => { let ev; try { ev = JSON.parse(e.data); } catch { return; } if (ev.event !== "message") return; PC.since = ev.id; LS.set("pcsince", ev.id); pcIncoming(ev.message); };
+  es.onerror = () => { if (PC.es !== es) return; es.close(); PC.es = null; setTimeout(() => { if (PC.on && !PC.es && !document.hidden) pcConnect(); }, 3000); };
+}
+function pcWait(id, ackMs = 25000, totalMs = 20 * 60e3) {
+  return new Promise((ok, ko) => {
+    let acked = false;
+    const done = () => { clearTimeout(t1); clearTimeout(t2); delete PC.waits[id]; };
+    const t1 = setTimeout(() => { if (!acked) { done(); PC.online = false; ko(new Error("pc")); } }, ackMs);
+    const t2 = setTimeout(() => { done(); ko(new Error("tempo")); }, totalMs);
+    PC.waits[id] = { ok: m => { done(); ok(m); }, ack: () => { acked = true; clearTimeout(t1); $("heard").textContent = "il PC sta lavorando…"; } };
+  });
+}
+async function pcPing() {
+  if (!(await pcSetup())) return false;
+  if (!PC.es) pcConnect();
+  try { const p = pcWait("ping", 15000, 15000); await pcSend({ k: "ping" }); await p; PC.online = true; } catch { PC.online = false; }
+  if (!mode) setState(null); return PC.online;
+}
+function showPcReply(m, late) {
+  const text = (m.reply || "").trim() || "Fatto, signore.";
+  addMsg("j", (late ? "Dal PC: " : "") + text);
+  if (m.actions && m.actions.length) addMsg("s", "Sul PC: " + m.actions.join("  ·  "));
+  if (m.confirm && m.confirm.token) confirmCard(m.confirm);
+  S.chat.push({ role: "assistant", content: text }); save();
+  return text;
+}
+function confirmCard(c) {
+  actionCard(c.danger ? "⚠ DENARO REALE · AUTORIZZAZIONE" : "AUTORIZZAZIONE RICHIESTA DAL PC", (c.title || "") + (c.detail ? "\n" + c.detail : ""), [
+    { label: c.danger ? "AUTORIZZA (denaro reale)" : "AUTORIZZA", onclick: a => { a.parentElement.querySelectorAll(".abtn").forEach(x => x.style.pointerEvents = "none"); a.textContent = "Autorizzato ✓"; pcRequest({ k: "confirm", token: c.token, approve: true }, "Autorizzo"); } },
+    { label: "NEGA", onclick: a => { a.parentElement.querySelectorAll(".abtn").forEach(x => x.style.pointerEvents = "none"); a.textContent = "Negato"; pcRequest({ k: "confirm", token: c.token, approve: false }, "Nego"); } } ]);
+}
+async function pcRequest(obj, shown) {
+  if (busy) return;
+  stopWake(); stopSpeaking();
+  if (shown) { addMsg("u", shown); S.chat.push({ role: "user", content: shown + " [al PC]" }); }
+  busy = true; $("send").disabled = true; setState("thinking"); $("heard").textContent = "invio al PC…";
+  const typing = document.createElement("div"); typing.className = "typing"; typing.innerHTML = "<i></i><i></i><i></i>"; $("log").appendChild(typing); scroll();
+  try {
+    if (!(await pcSetup())) throw new Error("codice");
+    if (!PC.es) pcConnect();
+    const id = rid(), p = pcWait(id); await pcSend({ ...obj, id });
+    const m = await p; typing.remove(); $("heard").textContent = ""; PC.online = true;
+    const text = showPcReply(m); setState(null); busy = false; speak(text);
+  } catch (e) {
+    typing.remove(); setState(null); $("heard").textContent = ""; convo = false;
+    addMsg("s", e.message === "pc" ? "Il PC non risponde, signore. Controlla che sia acceso, connesso a internet e con JARVIS aperto. Tocca 💻 per tornare alla modalità telefono."
+      : e.message === "codice" ? "Manca il codice del PC: aprilo dal QR sul PC (tasto 📱) o incollalo in ☰." : e.message === "tempo" ? "Il PC ci sta mettendo troppo: ti mostro la risposta appena arriva."
+      : "Non riesco a raggiungere il PC: " + e.message);
+    resumeWake();
+  } finally { busy = false; viaVoice = false; $("send").disabled = false; scroll(); }
+}
+function askPC(text) {
+  $("msg").value = ""; autosize(); addMsg("u", text); S.chat.push({ role: "user", content: text + " [al PC]" });
+  return pcRequest({ k: "msg", text, voice: viaVoice }, null);
+}
+function setPcBtn() { $("pcBtn").setAttribute("aria-pressed", String(PC.on)); if (!mode) setState(null); }
+$("pcBtn").onclick = async () => {
+  if (!cleanCode(PC.code) || cleanCode(PC.code).length < 20) { toast("MODALITÀ PC", "Prima abbina il PC: sul PC premi 📱 in JARVIS e inquadra il QR con la fotocamera.", 9000); openSheet(); $("pcIn").focus(); return; }
+  PC.on = !PC.on; LS.set("pcmode", PC.on); setPcBtn();
+  if (PC.on) { toast("MODALITÀ PC", "Ora parli con il JARVIS del PC: lui lavora sul computer, tu senti la risposta qui.", 6000); const ok = await pcPing();
+    addMsg("s", ok ? "PC collegato. Dimmi cosa devo fare sul computer." : "Il PC non risponde ancora: deve essere acceso, con internet e JARVIS aperto (versione aggiornata)."); }
+  else { if (PC.es) PC.es.close(); PC.es = null; PC.online = false; addMsg("s", "Modalità telefono: rispondo da qui, senza il PC."); }
+};
+document.addEventListener("visibilitychange", () => { if (!document.hidden && PC.on && !PC.es) pcConnect(); });
+
 /* ---------- memoria, promemoria, impostazioni ---------- */
 function renderSheet() {
   const now = Date.now(); $("remN").textContent = S.reminders.length; $("memN").textContent = S.memories.length;
@@ -686,10 +795,10 @@ function renderSheet() {
   mk($("lsList"), Object.entries(S.lists).map(([k, v]) => ({ k, text: k[0].toUpperCase() + k.slice(1) })), "Nessuna lista. Prova: «aggiungi latte e pane alla spesa».", x => S.lists[x.k].join(", ") || "vuota", x => { delete S.lists[x.k]; save(); renderSheet(); });
   mk($("memList"), S.memories, "Ancora niente. Dimmi «ricorda che…».", m => new Date(m.ts).toLocaleDateString("it-IT"), (m, i) => { S.memories.splice(i, 1); save(); renderSheet(); });
 }
-function openSheet() { $("tdIn").value = CFG.td; $("keyIn").value = CFG.key; $("modelIn").value = CFG.model; $("ttsIn").value = CFG.tts; $("keyNote").textContent = CFG.key ? "Chiave salvata su questo telefono." : "Incolla la tua chiave e premi Salva."; renderSheet(); $("drawer").hidden = false; }
+function openSheet() { $("pcIn").value = PC.code; $("tdIn").value = CFG.td; $("keyIn").value = CFG.key; $("modelIn").value = CFG.model; $("ttsIn").value = CFG.tts; $("keyNote").textContent = CFG.key ? "Chiave salvata su questo telefono." : "Incolla la tua chiave e premi Salva."; renderSheet(); $("drawer").hidden = false; }
 $("memBtn").onclick = openSheet;
 $("drawer").onclick = e => { if (e.target === $("drawer")) $("drawer").hidden = true; };
-$("saveKey").onclick = () => { CFG.td = $("tdIn").value.trim(); LS.set("td", CFG.td); refreshTicker(); CFG.key = $("keyIn").value.trim(); CFG.model = $("modelIn").value; CFG.tts = $("ttsIn").value;
+$("saveKey").onclick = () => { const nc = $("pcIn").value.trim(); if (nc !== PC.code) { PC.code = nc; LS.set("pccode", nc); PC.since = "2m"; PC.seen.clear(); if (PC.es) { PC.es.close(); PC.es = null; } if (PC.on) pcPing(); } CFG.td = $("tdIn").value.trim(); LS.set("td", CFG.td); refreshTicker(); CFG.key = $("keyIn").value.trim(); CFG.model = $("modelIn").value; CFG.tts = $("ttsIn").value;
   LS.set("key", CFG.key); LS.set("model", CFG.model); LS.set("tts", CFG.tts); $("keyNote").textContent = "Salvato."; };
 $("testKey").onclick = async () => { $("saveKey").click(); $("keyNote").textContent = "Provo…";
   try { const r = await fetch("https://api.openai.com/v1/models/gpt-4.1-mini", { headers: { "Authorization": "Bearer " + CFG.key } });
@@ -737,6 +846,10 @@ const tick = () => { $("clock").textContent = new Date().toLocaleString("it-IT",
   document.addEventListener("visibilitychange", () => { if (!document.hidden) refreshTicker(); });
   if (!CFG.key) openSheet();
   if (CFG.wake && SR) { startWake(false); keepAwake(); document.addEventListener("pointerdown", () => { needTap = false; startWake(true); keepAwake(); }, { once: true }); }
+  const hp = (location.hash.match(/pc=([A-Za-z0-9-]+)/) || [])[1];
+  if (hp) { PC.code = hp; LS.set("pccode", hp); PC.on = true; LS.set("pcmode", true); PC.since = "2m"; history.replaceState(null, "", location.pathname);
+    addMsg("s", "PC abbinato. Da ora quello che mi chiedi lo eseguo sul computer: tocca 💻 per tornare alla modalità telefono."); }
+  setPcBtn(); if (PC.on) pcPing();
   if (!SR) addMsg("s", IOS ? "Su iPhone per parlarmi apri questa pagina direttamente in Safari (non dall'icona della Home)." : "Per parlarmi apri questa pagina con Google Chrome.");
   try { speechSynthesis.getVoices(); } catch {}
 })();
