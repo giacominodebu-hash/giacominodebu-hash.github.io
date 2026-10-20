@@ -178,7 +178,7 @@ const LS = { get(k, d) { try { const v = localStorage.getItem("jv_" + k); return
              set(k, v) { try { localStorage.setItem("jv_" + k, JSON.stringify(v)); } catch {} } };
 const S = { memories: LS.get("memories", []), reminders: LS.get("reminders", []), chat: LS.get("chat", []), trades: LS.get("trades", []), alerts: LS.get("alerts", []), watch: LS.get("watch", ["XAUUSD", "BTCUSD", "EURUSD"]), contacts: LS.get("contacts", []), lists: LS.get("lists", {}) };
 const CFG = { key: LS.get("key", ""), model: LS.get("model", "auto"), tts: LS.get("tts", "openai"), voice: LS.get("voice", true), wake: LS.get("wake", false), td: LS.get("td", "") };
-const save = () => { S.chat = S.chat.slice(-40); LS.set("memories", S.memories); LS.set("reminders", S.reminders); LS.set("chat", S.chat); LS.set("trades", S.trades); LS.set("alerts", S.alerts); LS.set("watch", S.watch); LS.set("contacts", S.contacts); LS.set("lists", S.lists); };
+const save = () => { S.chat = S.chat.slice(-40); LS.set("memories", S.memories); LS.set("reminders", S.reminders); LS.set("chat", S.chat); LS.set("trades", S.trades); LS.set("alerts", S.alerts); LS.set("watch", S.watch); LS.set("contacts", S.contacts); LS.set("lists", S.lists); LS.set("updated", Date.now()); S._dirty = true; };
 let busy = false, pendingImage = null, viaVoice = false;
 
 /* ---------- interfaccia ---------- */
@@ -705,7 +705,8 @@ async function pcIncoming(wrapper) {
   if (m.k === "pong") { PC.online = true; if (!mode) setState(null); const wt = PC.waits["ping"]; if (wt) wt.ok(m); return; }
   const wt = PC.waits[m.re];
   if (m.k === "ack") { if (wt) wt.ack(); return; }
-  if (m.k === "reply") { if (wt) wt.ok(m); else showPcReply(m, true); }
+  if (wt) { wt.ok(m); return; }
+  if (m.k === "reply") showPcReply(m, true);
 }
 function pcConnect() {
   if (PC.es) PC.es.close();
@@ -765,6 +766,32 @@ function askPC(text) {
   $("msg").value = ""; autosize(); addMsg("u", text); S.chat.push({ role: "user", content: text + " [al PC]" });
   return pcRequest({ k: "msg", text, voice: viaVoice }, null);
 }
+/* copia di sicurezza sul PC: se il telefono perde i dati, tutto torna da solo */
+const SYNC_KEYS = ["memories", "reminders", "contacts", "lists", "trades", "alerts", "watch"];
+async function pcSyncPut(force) {
+  if ((!S._dirty && !force) || !cleanCode(PC.code) || cleanCode(PC.code).length < 20) return;
+  try { if (!(await pcSetup())) return; if (!PC.es) pcConnect();
+    const state = { updated: LS.get("updated", Date.now()), td: CFG.td, chat: S.chat.slice(-16) }; SYNC_KEYS.forEach(k => state[k] = S[k]);
+    const id = rid(), p = pcWait(id, 20000, 20000); await pcSend({ k: "sync_put", id, state }); await p; S._dirty = false; } catch {}
+}
+async function pcSyncGet() {
+  try { if (!(await pcSetup())) return false; if (!PC.es) pcConnect();
+    const id = rid(), p = pcWait(id, 20000, 20000); await pcSend({ k: "sync_get", id }); const m = await p;
+    let restored = [];
+    if (m.key && !CFG.key) { CFG.key = m.key; LS.set("key", m.key); restored.push("chiave OpenAI"); }
+    const st = m.state;
+    if (st && (st.updated || 0) > LS.get("updated", 0)) {
+      SYNC_KEYS.forEach(k => { if (st[k] != null) S[k] = st[k]; }); if (st.td && !CFG.td) { CFG.td = st.td; LS.set("td", st.td); }
+      if (Array.isArray(st.chat) && !S.chat.length) S.chat = st.chat;
+      save(); LS.set("updated", st.updated); S._dirty = false; renderSheet(); refreshTicker(); restored.push("memoria, contatti, liste e diario");
+    }
+    if (restored.length) addMsg("s", "Ho ripreso dal PC: " + restored.join(", ") + ".");
+    return true;
+  } catch { return false; }
+}
+setInterval(() => pcSyncPut(false), 4 * 60e3);
+document.addEventListener("visibilitychange", () => { if (document.hidden) pcSyncPut(false); });
+function keepCodeInUrl() { const c = cleanCode(PC.code); if (c.length >= 20 && !location.hash.includes("pc=")) history.replaceState(null, "", location.pathname + "#pc=" + PC.code); }
 function setPcBtn() { $("pcBtn").setAttribute("aria-pressed", String(PC.on)); if (!mode) setState(null); }
 $("pcBtn").onclick = async () => {
   if (!cleanCode(PC.code) || cleanCode(PC.code).length < 20) { toast("MODALITÀ PC", "Prima abbina il PC: sul PC premi 📱 in JARVIS e inquadra il QR con la fotocamera.", 9000); openSheet(); $("pcIn").focus(); return; }
@@ -844,12 +871,14 @@ const tick = () => { $("clock").textContent = new Date().toLocaleString("it-IT",
   renderSheet(); checkReminders(); setInterval(checkReminders, 20000);
   refreshTicker(); setInterval(refreshTicker, 60000); setInterval(checkAlerts, 60000); setTimeout(checkAlerts, 5000);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) refreshTicker(); });
-  if (!CFG.key) openSheet();
+  if (!CFG.key && cleanCode(PC.code || (location.hash.match(/pc=([A-Za-z0-9-]+)/) || [])[1]).length < 20) openSheet();
   if (CFG.wake && SR) { startWake(false); keepAwake(); document.addEventListener("pointerdown", () => { needTap = false; startWake(true); keepAwake(); }, { once: true }); }
   const hp = (location.hash.match(/pc=([A-Za-z0-9-]+)/) || [])[1];
-  if (hp) { PC.code = hp; LS.set("pccode", hp); PC.on = true; LS.set("pcmode", true); PC.since = "2m"; history.replaceState(null, "", location.pathname);
-    addMsg("s", "PC abbinato. Da ora quello che mi chiedi lo eseguo sul computer: tocca 💻 per tornare alla modalità telefono."); }
-  setPcBtn(); if (PC.on) pcPing();
+  if (hp && cleanCode(hp) !== cleanCode(PC.code)) { const fresh = !PC.code; PC.code = hp; LS.set("pccode", hp); if (fresh || !LS.get("pcmode_set", false)) { PC.on = true; LS.set("pcmode", true); LS.set("pcmode_set", true); } PC.since = "2m";
+    addMsg("s", "PC abbinato: resto collegato da solo. Per averlo sempre pronto aggiungi ADESSO questa pagina alla schermata Home (Condividi → Aggiungi alla schermata Home): il collegamento è salvato dentro l'icona."); }
+  keepCodeInUrl(); setPcBtn();
+  if (cleanCode(PC.code).length >= 20) { (async () => { if (PC.on) await pcPing(); const empty = !CFG.key || (!S.memories.length && !S.contacts.length && !S.trades.length);
+    if (empty) { const ok = await pcSyncGet(); if (ok && CFG.key) $("drawer").hidden = true; } else pcSyncPut(true); })(); }
   if (!SR) addMsg("s", IOS ? "Su iPhone per parlarmi apri questa pagina direttamente in Safari (non dall'icona della Home)." : "Per parlarmi apri questa pagina con Google Chrome.");
   try { speechSynthesis.getVoices(); } catch {}
 })();
