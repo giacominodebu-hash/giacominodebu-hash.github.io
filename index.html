@@ -177,14 +177,14 @@ const $ = id => document.getElementById(id);
 const LS = { get(k, d) { try { const v = localStorage.getItem("jv_" + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
              set(k, v) { try { localStorage.setItem("jv_" + k, JSON.stringify(v)); } catch {} } };
 const S = { memories: LS.get("memories", []), reminders: LS.get("reminders", []), chat: LS.get("chat", []), trades: LS.get("trades", []), alerts: LS.get("alerts", []), watch: LS.get("watch", ["XAUUSD", "BTCUSD", "EURUSD"]), contacts: LS.get("contacts", []), lists: LS.get("lists", {}) };
-const CFG = { key: LS.get("key", ""), model: LS.get("model", "auto"), tts: LS.get("tts", "openai"), voice: LS.get("voice", true), wake: LS.get("wake", false), td: LS.get("td", "") };
+const CFG = { key: LS.get("key", ""), model: LS.get("model", "auto"), tts: LS.get("tts", "openai"), voice: LS.get("voice", true), wake: LS.get("wake", true), td: LS.get("td", "") };
 const save = () => { S.chat = S.chat.slice(-40); LS.set("memories", S.memories); LS.set("reminders", S.reminders); LS.set("chat", S.chat); LS.set("trades", S.trades); LS.set("alerts", S.alerts); LS.set("watch", S.watch); LS.set("contacts", S.contacts); LS.set("lists", S.lists); LS.set("updated", Date.now()); S._dirty = true; };
 let busy = false, pendingImage = null, viaVoice = false;
 
 /* ---------- interfaccia ---------- */
 let mode = null;
 function setState(s) { mode = s; ["thinking", "speaking", "listening"].forEach(c => document.body.classList.toggle(c, s === c));
-  $("state").textContent = s === "thinking" ? "ELABORAZIONE" : s === "speaking" ? "IN COMUNICAZIONE" : s === "listening" ? "TI ASCOLTO" : (PC.on ? "PC · " : "") + (CFG.wake ? (needTap ? "TOCCA IL NUCLEO PER ASCOLTARE" : "DI' «HEY JARVIS»") : PC.on ? (PC.online ? "COLLEGATO" : "IN COLLEGAMENTO…") : "IN LINEA"); }
+  $("state").textContent = s === "thinking" ? "ELABORAZIONE" : s === "speaking" ? "IN COMUNICAZIONE" : s === "listening" ? "TI ASCOLTO" : (PC.on ? "PC · " : "") + (CFG.wake ? (needTap ? "TOCCA LO SCHERMO PER ASCOLTARE" : "DI' «HEY JARVIS»") : PC.on ? (PC.online ? "COLLEGATO" : "IN COLLEGAMENTO…") : "IN LINEA"); }
 const esc = t => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const PY = /(#[^\n]*)|("""[\s\S]*?"""|'''[\s\S]*?'''|"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*')|\b(def|class|return|if|elif|else|for|while|in|import|from|as|with|try|except|raise|lambda|and|or|not|is|None|True|False|pass|break|continue)\b|\b(\d+(?:\.\d+)?)\b/g;
 const hl = c => esc(c).replace(PY, (m, a, b, k, n) => a ? `<span class="cm">${a}</span>` : b ? `<span class="st">${b}</span>` : k ? `<span class="k">${k}</span>` : `<span class="nu">${n}</span>`);
@@ -343,13 +343,19 @@ function startWake(fromTap) {
   };
   r.onerror = e => { if (e.error === "no-speech" || e.error === "aborted") return; wakeIssue(e.error, fromTap); };
   r.onend = () => { if (wakeRec === r) wakeRec = null; if (fired) return; if (armed) { fire(); return; } if (!needTap) setTimeout(() => startWake(false), 300); };
-  try { r.start(); needTap = false; if (!mode) setState(null); } catch { wakeRec = null; wakeIssue("start", fromTap); }
+  try { r.start(); needTap = false; r.onstart = () => { wakeFails = 0; }; if (!mode) setState(null); } catch { wakeRec = null; wakeIssue("start", fromTap); }
 }
+let wakeFails = 0;
 function wakeIssue(err, fromTap) {
-  if ((err === "not-allowed" || err === "service-not-allowed") && fromTap) { micProblem(err); return; }
+  const denied = err === "not-allowed" || err === "service-not-allowed";
+  if (denied && fromTap) { micProblem(err); return; }
+  if (!denied && err !== "start" && ++wakeFails <= 6) { setTimeout(() => startWake(false), 1500 * wakeFails); return; }   // rete o microfono occupato: riprovo da solo
   needTap = true; if (!mode) setState(null);
-  $("heard").textContent = err === "start" ? "" : "microfono: " + err;
+  $("heard").textContent = denied || err === "start" ? "tocca un punto qualsiasi dello schermo" : "microfono: " + err;
 }
+/* l'iPhone a volte vuole un tocco per riaprire il microfono: va bene qualsiasi punto dello schermo */
+document.addEventListener("touchend", () => { if (CFG.wake && needTap && !wakeRec && !listening && !busy && mode !== "speaking") { needTap = false; wakeFails = 0; startWake(true); keepAwake(); } }, true);
+document.addEventListener("click", () => { if (CFG.wake && needTap && !wakeRec && !listening && !busy && mode !== "speaking") { needTap = false; wakeFails = 0; startWake(true); keepAwake(); } }, true);
 function stopWake() { const r = wakeRec; wakeRec = null; if (r) try { r.abort(); } catch {} }
 function resumeWake() { if (CFG.wake) setTimeout(startWake, 500); }
 const pick = a => a[Math.floor(Math.random() * a.length)];
