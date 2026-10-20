@@ -1,0 +1,415 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#03080f">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>J.A.R.V.I.S.</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%2303080f'/%3E%3Ccircle cx='50' cy='50' r='36' fill='none' stroke='%2346e1ff' stroke-width='8' stroke-dasharray='20 6'/%3E%3Ccircle cx='50' cy='50' r='15' fill='%23e8fdff'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;800&family=Rajdhani:wght@500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#03080f;--panel:#06131f;--line:rgba(70,225,255,.22);--cyan:#46e1ff;--cyan-d:#1b8fb0;--text:#d8f3fb;--muted:#6c93a6;--amber:#ffb84d;--green:#62f5b4;--red:#ff5a6a;
+  --f-head:"Orbitron",system-ui,sans-serif;--f-body:"Rajdhani","Segoe UI",system-ui,sans-serif;--f-mono:"JetBrains Mono",ui-monospace,Consolas,monospace;color-scheme:dark;--core:var(--cyan)}
+[hidden]{display:none!important}
+*{box-sizing:border-box}html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--text);font-family:var(--f-body);font-size:17px;-webkit-font-smoothing:antialiased;overflow:hidden;
+  background-image:radial-gradient(circle at 50% 18%,rgba(30,140,190,.22),transparent 55%),linear-gradient(rgba(70,225,255,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(70,225,255,.035) 1px,transparent 1px);background-size:auto,38px 38px,38px 38px}
+button,input,textarea,select{font:inherit;color:inherit}
+.app{height:100%;display:flex;flex-direction:column;max-width:760px;margin:0 auto;padding:env(safe-area-inset-top,0px) max(16px,env(safe-area-inset-right,0px)) 0 max(16px,env(safe-area-inset-left,0px))}
+header{display:flex;align-items:center;justify-content:space-between;gap:10px;padding-block:12px 6px;border-bottom:1px solid var(--line)}
+.brand{font-family:var(--f-head);font-weight:800;letter-spacing:.32em;font-size:15px;text-shadow:0 0 14px rgba(70,225,255,.55)}
+.clock{font-family:var(--f-mono);font-size:13px;color:var(--muted)}
+.hbtns{display:flex;gap:6px}
+.ib{background:rgba(70,225,255,.08);border:1px solid var(--line);border-radius:8px;width:40px;height:40px;display:grid;place-items:center;cursor:pointer;font-size:17px;padding:0}
+.ib[aria-pressed="false"]{opacity:.5}
+.ib.wake[aria-pressed="true"]{border-color:var(--green);box-shadow:0 0 12px rgba(98,245,180,.45)}
+:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+.core-wrap{display:flex;flex-direction:column;align-items:center;padding-block:10px 4px;flex-shrink:0}
+.core{width:min(150px,38vw);aspect-ratio:1;color:var(--core);transition:color .4s;cursor:pointer}
+.core .rg,.glow{transform-origin:100px 100px;transform-box:view-box}
+.r1{animation:spin 40s linear infinite}.r2{animation:spin 12s linear infinite reverse}.r3{animation:spin 20s linear infinite}.r4{animation:spin 7s linear infinite reverse}
+.glow{animation:breathe 4s ease-in-out infinite}
+body.thinking{--core:#a8dcff}body.thinking .r2{animation-duration:2.5s}body.thinking .r4{animation-duration:1.6s}
+body.speaking .glow{animation-duration:.7s}body.listening{--core:var(--green)}body.listening .glow{animation-duration:1.4s}
+@keyframes spin{to{transform:rotate(360deg)}}@keyframes breathe{50%{transform:scale(1.1);opacity:.8}}
+.state{font-family:var(--f-head);font-size:10px;letter-spacing:.32em;color:var(--core);margin-top:6px;padding-left:.32em;text-align:center}
+.heard{font-size:14px;color:var(--muted);min-height:18px;text-align:center;margin-top:2px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.log{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:14px;padding-block:10px 14px;min-height:0}
+.msg{max-width:94%;line-height:1.42;min-width:0}
+.msg .who{display:block;font-family:var(--f-head);font-size:9px;letter-spacing:.3em;margin-bottom:4px}
+.msg.j .who{color:var(--cyan)}.msg.j .txt{border-left:2px solid var(--cyan);padding-left:11px}
+.msg.u{align-self:flex-end;text-align:right}.msg.u .who{color:var(--muted)}.msg.u .txt{color:#a9d4e4}
+.msg.s .txt{font-family:var(--f-mono);font-size:12.5px;color:var(--muted);border:1px dashed var(--line);padding:9px 11px;border-radius:6px;white-space:pre-wrap}
+.txt p{margin:0 0 6px;white-space:pre-wrap}.txt img{border-radius:6px;border:1px solid var(--line);max-height:180px;margin-top:4px;max-width:100%}
+pre{position:relative;font-family:var(--f-mono);font-size:12px;line-height:1.5;background:#020a12;border:1px solid var(--line);border-radius:6px;padding:28px 11px 11px;overflow-x:auto;margin:6px 0;text-align:left}
+.cp{position:absolute;top:5px;right:5px;font-family:var(--f-head);font-size:8.5px;letter-spacing:.15em;background:rgba(70,225,255,.12);border:1px solid var(--line);border-radius:4px;padding:4px 7px;cursor:pointer}
+.k{color:#ff86c0}.st{color:#a3ffb8}.cm{color:#5e8597;font-style:italic}.nu{color:#ffd27a}
+.chips{display:flex;gap:6px;overflow-x:auto;padding-block:4px 8px;scrollbar-width:none}.chips::-webkit-scrollbar{display:none}
+.chip{flex-shrink:0;background:rgba(70,225,255,.07);border:1px solid var(--line);border-radius:999px;padding:7px 12px;font-size:14.5px;font-weight:600;cursor:pointer;white-space:nowrap}
+.bar{display:flex;gap:8px;align-items:flex-end;padding-block:8px calc(10px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--line)}
+.bar textarea{flex:1;min-width:0;resize:none;max-height:120px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:11px 13px;font-size:17px;outline:none;line-height:1.3}
+.bar textarea:focus{border-color:var(--cyan)}
+.mic{width:46px;height:46px;font-size:20px;border-radius:12px;flex-shrink:0}
+.mic.on{background:rgba(98,245,180,.22);border-color:var(--green);box-shadow:0 0 16px rgba(98,245,180,.45)}
+.send{background:linear-gradient(180deg,rgba(70,225,255,.3),rgba(70,225,255,.1));border:1px solid var(--cyan);border-radius:12px;height:46px;padding:0 14px;font-family:var(--f-head);font-size:11px;letter-spacing:.18em;font-weight:800;cursor:pointer}
+.send:disabled{opacity:.4}
+.typing{display:inline-flex;gap:5px;padding:4px 0 4px 13px}.typing i{width:6px;height:6px;background:var(--cyan);animation:bl 1s infinite}.typing i:nth-child(2){animation-delay:.15s}.typing i:nth-child(3){animation-delay:.3s}
+@keyframes bl{50%{opacity:.15}}
+.drawer{position:fixed;inset:0;z-index:30;background:rgba(1,4,8,.75);display:flex;align-items:flex-end;justify-content:center}
+.sheet{width:min(760px,100%);max-height:88%;overflow-y:auto;background:var(--panel);border:1px solid var(--line);border-bottom:none;border-radius:16px 16px 0 0;padding:18px max(16px,env(safe-area-inset-right,0px)) calc(18px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px))}
+.sheet h2{font-family:var(--f-head);font-size:11px;letter-spacing:.3em;color:var(--cyan);margin:16px 0 8px;display:flex;justify-content:space-between}
+.sheet h2:first-child{margin-top:0}
+.sheet ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.sheet li{display:flex;justify-content:space-between;gap:10px;align-items:center;border-left:2px solid var(--cyan-d);padding:5px 0 5px 10px}
+.sheet li small{display:block;font-family:var(--f-mono);font-size:11.5px;color:var(--muted)}
+.sheet label{display:block;font-size:14px;color:var(--muted);margin:10px 0 4px}
+.sheet input[type=password],.sheet input[type=text],.sheet select{width:100%;background:#020a12;border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:16px}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.btn{background:rgba(70,225,255,.12);border:1px solid var(--cyan);border-radius:8px;padding:9px 14px;cursor:pointer;font-weight:700}
+.del{background:none;border:1px solid rgba(255,90,106,.4);color:#ffb3bb;border-radius:6px;padding:4px 9px;font-size:13px;cursor:pointer}
+.note{font-size:14px;color:var(--muted);line-height:1.4}
+.toast{position:fixed;left:50%;transform:translateX(-50%);top:calc(12px + env(safe-area-inset-top,0px));z-index:40;background:#1a1204;border:1px solid var(--amber);border-radius:10px;padding:10px 14px;max-width:calc(100% - 32px);box-shadow:0 0 24px rgba(255,184,77,.3)}
+.toast b{display:block;font-family:var(--f-head);font-size:9px;letter-spacing:.25em;color:var(--amber)}
+@media (prefers-reduced-motion:reduce){*{animation:none!important}}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div><div class="brand">J.A.R.V.I.S.</div><div class="clock" id="clock">--:--</div></div>
+    <div class="hbtns">
+      <button class="ib wake" id="wakeBtn" aria-pressed="false" title="Ascolto continuo «Hey Jarvis»" aria-label="Ascolto continuo Hey Jarvis">👂</button>
+      <button class="ib" id="voiceBtn" aria-pressed="true" title="Voce di JARVIS" aria-label="Voce di JARVIS">🔊</button>
+      <button class="ib" id="memBtn" title="Memoria e impostazioni" aria-label="Memoria e impostazioni">☰</button>
+    </div>
+  </header>
+  <div class="core-wrap">
+    <svg class="core" id="core" viewBox="0 0 200 200" role="button" tabindex="0" aria-label="Parla con JARVIS">
+      <defs><radialGradient id="cg"><stop offset="0" stop-color="#fff"/><stop offset=".3" stop-color="#c9f6ff"/><stop offset=".6" stop-color="currentColor" stop-opacity=".7"/><stop offset="1" stop-color="currentColor" stop-opacity="0"/></radialGradient></defs>
+      <g class="rg r1"><circle cx="100" cy="100" r="94" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="2 7" opacity=".7"/></g>
+      <g class="rg r2"><circle cx="100" cy="100" r="82" fill="none" stroke="currentColor" stroke-width="4" stroke-dasharray="60 22 30 22 100 40" stroke-linecap="round"/></g>
+      <g class="rg r3"><circle cx="100" cy="100" r="66" fill="none" stroke="currentColor" stroke-width="10" stroke-dasharray="30 5" opacity=".65"/></g>
+      <g class="rg r4"><circle cx="100" cy="100" r="50" fill="none" stroke="currentColor" stroke-width="1.4" stroke-dasharray="18 7 3 7"/></g>
+      <circle class="glow" cx="100" cy="100" r="40" fill="url(#cg)"/><circle cx="100" cy="100" r="17" fill="#effdff"/>
+    </svg>
+    <div class="state" id="state">IN LINEA</div>
+    <div class="heard" id="heard"></div>
+  </div>
+  <div class="log" id="log" aria-live="polite"></div>
+  <div class="chips">
+    <button class="chip">Briefing di oggi</button>
+    <button class="chip">Scrivimi una strategia EMA 20/50 su XAUUSD in Python</button>
+    <button class="chip">Spiegami l'RSI in 3 frasi</button>
+    <button class="chip">Ricordami alle 18 di controllare l'oro</button>
+    <button class="chip">Cosa ricordi di me?</button>
+  </div>
+  <form class="bar" id="bar">
+    <button type="button" class="ib mic" id="micBtn" title="Parla con JARVIS" aria-label="Parla con JARVIS">🎙</button>
+    <button type="button" class="ib mic" id="photoBtn" title="Analizza un grafico" aria-label="Allega un grafico">📷</button>
+    <input type="file" id="photo" accept="image/*" hidden>
+    <textarea id="msg" rows="1" placeholder="Scrivi o di' «Hey Jarvis»…" aria-label="Messaggio per JARVIS"></textarea>
+    <button class="send" id="send" type="submit">INVIA</button>
+  </form>
+</div>
+
+<div class="drawer" id="drawer" hidden>
+  <div class="sheet" role="dialog" aria-label="Memoria e impostazioni">
+    <h2>IMPOSTAZIONI</h2>
+    <label for="keyIn">Chiave OpenAI (resta salvata solo su questo telefono)</label>
+    <input id="keyIn" type="password" placeholder="sk-..." autocomplete="off">
+    <label for="modelIn">Cervello</label>
+    <select id="modelIn">
+      <option value="auto">Automatico (veloce per parlare, potente per codice)</option>
+      <option value="gpt-4.1-mini">Sempre veloce (gpt-4.1-mini)</option>
+      <option value="gpt-4.1">Sempre potente (gpt-4.1)</option>
+    </select>
+    <label for="ttsIn">Voce</label>
+    <select id="ttsIn">
+      <option value="openai">Voce JARVIS (OpenAI, più naturale)</option>
+      <option value="browser">Voce del telefono (gratis)</option>
+    </select>
+    <div class="row"><button class="btn" id="saveKey" type="button">Salva</button><button class="btn" id="testKey" type="button">Prova la chiave</button></div>
+    <p class="note" id="keyNote"></p>
+    <h2>PROMEMORIA <span id="remN">0</span></h2><ul id="remList"></ul>
+    <h2>COSA RICORDO DI TE <span id="memN">0</span></h2><ul id="memList"></ul>
+    <h2>CONVERSAZIONE</h2>
+    <button class="del" id="resetBtn" type="button">Cancella la conversazione</button>
+    <p class="note">«Hey Jarvis» funziona con la pagina aperta e lo schermo acceso. Tocca 👂 per attivarlo o spegnerlo.</p>
+  </div>
+</div>
+<audio id="player" playsinline></audio>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const LS = { get(k, d) { try { const v = localStorage.getItem("jv_" + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+             set(k, v) { try { localStorage.setItem("jv_" + k, JSON.stringify(v)); } catch {} } };
+const S = { memories: LS.get("memories", []), reminders: LS.get("reminders", []), chat: LS.get("chat", []) };
+const CFG = { key: LS.get("key", ""), model: LS.get("model", "auto"), tts: LS.get("tts", "openai"), voice: LS.get("voice", true), wake: LS.get("wake", false) };
+const save = () => { S.chat = S.chat.slice(-40); LS.set("memories", S.memories); LS.set("reminders", S.reminders); LS.set("chat", S.chat); };
+let busy = false, pendingImage = null, viaVoice = false;
+
+/* ---------- interfaccia ---------- */
+let mode = null;
+function setState(s) { mode = s; ["thinking", "speaking", "listening"].forEach(c => document.body.classList.toggle(c, s === c));
+  $("state").textContent = s === "thinking" ? "ELABORAZIONE" : s === "speaking" ? "IN COMUNICAZIONE" : s === "listening" ? "TI ASCOLTO" : CFG.wake ? "DI' «HEY JARVIS»" : "IN LINEA"; }
+const esc = t => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const PY = /(#[^\n]*)|("""[\s\S]*?"""|'''[\s\S]*?'''|"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*')|\b(def|class|return|if|elif|else|for|while|in|import|from|as|with|try|except|raise|lambda|and|or|not|is|None|True|False|pass|break|continue)\b|\b(\d+(?:\.\d+)?)\b/g;
+const hl = c => esc(c).replace(PY, (m, a, b, k, n) => a ? `<span class="cm">${a}</span>` : b ? `<span class="st">${b}</span>` : k ? `<span class="k">${k}</span>` : `<span class="nu">${n}</span>`);
+function render(el, text) {
+  el.replaceChildren();
+  const parts = String(text || "").split(/```(\w*)\n?([\s\S]*?)(?:```|$)/g);
+  for (let i = 0; i < parts.length; i += 3) {
+    const plain = parts[i].replace(/\*\*(.+?)\*\*/g, "$1").replace(/^#{1,6}\s*/gm, "").trim();
+    if (plain) { const p = document.createElement("p"); p.textContent = plain; el.appendChild(p); }
+    if (i + 2 < parts.length) {
+      const code = parts[i + 2], pre = document.createElement("pre"); pre.innerHTML = hl(code.replace(/\n$/, ""));
+      const b = document.createElement("button"); b.type = "button"; b.className = "cp"; b.textContent = "COPIA";
+      b.onclick = () => navigator.clipboard?.writeText(code).then(() => { b.textContent = "COPIATO"; setTimeout(() => b.textContent = "COPIA", 1500); });
+      pre.appendChild(b); el.appendChild(pre);
+    }
+  }
+}
+function addMsg(who, text, img) {
+  const w = document.createElement("div"); w.className = "msg " + who;
+  const n = document.createElement("span"); n.className = "who"; n.textContent = who === "u" ? "TU" : who === "s" ? "SISTEMA" : "J.A.R.V.I.S.";
+  const t = document.createElement("div"); t.className = "txt";
+  if (who === "u") { const p = document.createElement("p"); p.textContent = text; t.appendChild(p); } else render(t, text);
+  if (img) { const i = document.createElement("img"); i.src = img; i.alt = "Grafico allegato"; t.appendChild(i); }
+  w.append(n, t); $("log").appendChild(w); scroll(); return t;
+}
+const scroll = () => { const l = $("log"); l.scrollTop = l.scrollHeight; };
+function toast(title, text, ms = 7000) { const t = document.createElement("div"); t.className = "toast"; const b = document.createElement("b"); b.textContent = title;
+  t.append(b, document.createTextNode(text)); document.body.appendChild(t); setTimeout(() => t.remove(), ms); }
+
+/* ---------- voce in uscita ---------- */
+const player = $("player");
+function speakable(t) { return String(t).replace(/```[\s\S]*?(```|$)/g, " ").replace(/\*\*/g, "").replace(/https?:\/\/\S+/g, "il link").replace(/\s+/g, " ").trim().slice(0, 700); }
+function stopSpeaking() { try { speechSynthesis.cancel(); } catch {} try { player.pause(); } catch {} }
+async function speak(text) {
+  const say = speakable(text);
+  if (!CFG.voice || !say) { afterSpeak(); return; }
+  stopWake(); stopSpeaking();
+  if (CFG.tts === "openai" && CFG.key) {
+    try {
+      const r = await fetch("https://api.openai.com/v1/audio/speech", { method: "POST", headers: { "Authorization": "Bearer " + CFG.key, "Content-Type": "application/json" },
+        body: JSON.stringify({ model: "gpt-4o-mini-tts", voice: "onyx", input: say, response_format: "mp3",
+          instructions: "Parla in italiano con voce maschile calma, raffinata e sicura, come un maggiordomo britannico tecnologico. Ritmo naturale, leggermente ironico." }) });
+      if (!r.ok) throw new Error(r.status);
+      const url = URL.createObjectURL(await r.blob());
+      player.src = url;
+      player.onplay = () => setState("speaking");
+      player.onended = player.onerror = () => { URL.revokeObjectURL(url); setState(null); afterSpeak(); };
+      await player.play(); return;
+    } catch { /* ripiego sulla voce del telefono */ }
+  }
+  try {
+    const u = new SpeechSynthesisUtterance(say); u.lang = "it-IT"; u.rate = 1.03; u.pitch = .92;
+    const v = speechSynthesis.getVoices().filter(v => /^it/i.test(v.lang));
+    u.voice = v.find(x => /luca|diego|cosimo|giorgio|male|uomo/i.test(x.name)) || v[0] || null;
+    u.onstart = () => setState("speaking"); u.onend = u.onerror = () => { setState(null); afterSpeak(); };
+    speechSynthesis.speak(u);
+  } catch { setState(null); afterSpeak(); }
+}
+
+/* ---------- ascolto: pulsante e "Hey Jarvis" ---------- */
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+const WAKE = /(?:^|\s)(?:hey|ehi|ehy|hei|ei|ok|okay|ciao)?\s*(?:jarvis|jarvi|giarvis|jervis|gervis|jarvisse|giarvi|charvis)\b[\s,.!?]*/i;
+let rec = null, wakeRec = null, listening = false, convo = false, manualStop = false, wakeLock = null, micDenied = false;
+function micProblem(err) {
+  if (err === "not-allowed" || err === "service-not-allowed") { micDenied = true; CFG.wake = false; LS.set("wake", false); setWakeBtn();
+    toast("MICROFONO", "Chrome ha bloccato il microfono. Tocca il lucchetto accanto all'indirizzo → Autorizzazioni → Microfono → Consenti, poi ricarica.", 12000); }
+}
+function listen() {
+  if (!SR) { toast("VOCE", "Questo browser non riconosce la voce: apri la pagina con Google Chrome."); return; }
+  if (busy || listening) return;
+  stopWake(); stopSpeaking();
+  let finalText = ""; manualStop = false;
+  rec = new SR(); rec.lang = "it-IT"; rec.interimResults = true; rec.continuous = false;
+  rec.onresult = e => { let t = ""; for (const r of e.results) t += r[0].transcript; $("heard").textContent = t; if (e.results[e.results.length - 1].isFinal) finalText = t; };
+  rec.onerror = e => micProblem(e.error);
+  rec.onend = () => {
+    listening = false; $("micBtn").classList.remove("on"); if (mode === "listening") setState(null);
+    const t = (finalText || "").trim(); $("heard").textContent = "";
+    if (t) { convo = !manualStop; viaVoice = true; ask(t); } else { convo = false; resumeWake(); }
+  };
+  try { rec.start(); listening = true; $("micBtn").classList.add("on"); setState("listening"); } catch { resumeWake(); }
+}
+function afterSpeak() { if (convo && !busy && !micDenied) setTimeout(listen, 350); else resumeWake(); }
+function startWake() {
+  if (!CFG.wake || !SR || micDenied || wakeRec || listening || busy || mode === "speaking" || document.hidden) return;
+  const r = new SR(); r.lang = "it-IT"; r.continuous = true; r.interimResults = true; wakeRec = r; let fired = false;
+  r.onresult = e => {
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const res = e.results[i], t = res[0].transcript, m = t.match(WAKE);
+      if (!m || fired) continue;
+      const cmd = t.slice(m.index + m[0].length).trim();
+      $("heard").textContent = t;
+      if (!res.isFinal) continue;                  // aspetta la fine della frase
+      fired = true; stopWake(); convo = true; $("heard").textContent = "";
+      if (cmd.length > 2) { viaVoice = true; ask(cmd); } else speak(pick(["Sì, signore?", "Mi dica.", "Sono qui, signore."]));
+      return;
+    }
+  };
+  r.onerror = e => micProblem(e.error);
+  r.onend = () => { if (wakeRec === r) wakeRec = null; if (!fired) setTimeout(startWake, 300); };
+  try { r.start(); } catch { wakeRec = null; setTimeout(startWake, 1500); }
+}
+function stopWake() { const r = wakeRec; wakeRec = null; if (r) try { r.abort(); } catch {} }
+function resumeWake() { if (CFG.wake) setTimeout(startWake, 500); }
+const pick = a => a[Math.floor(Math.random() * a.length)];
+async function keepAwake() { try { if (CFG.wake && "wakeLock" in navigator && !wakeLock) { wakeLock = await navigator.wakeLock.request("screen"); wakeLock.addEventListener("release", () => { wakeLock = null; }); } } catch {} }
+function setWakeBtn() { $("wakeBtn").setAttribute("aria-pressed", String(CFG.wake)); if (!mode) setState(null); }
+$("wakeBtn").onclick = () => {
+  if (!SR) { toast("VOCE", "Per «Hey Jarvis» serve Google Chrome."); return; }
+  micDenied = false; CFG.wake = !CFG.wake; LS.set("wake", CFG.wake); setWakeBtn();
+  if (CFG.wake) { startWake(); keepAwake(); toast("HEY JARVIS", "Ti ascolto: di' «Hey Jarvis» e poi la domanda. Tieni la pagina aperta e lo schermo acceso."); }
+  else { stopWake(); try { wakeLock && wakeLock.release(); } catch {} wakeLock = null; }
+};
+$("micBtn").onclick = () => { micDenied = false; if (listening) { manualStop = true; try { rec.stop(); } catch {} return; } convo = false; listen(); };
+$("core").onclick = () => $("micBtn").click();
+$("core").onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $("micBtn").click(); } };
+document.addEventListener("visibilitychange", () => { if (document.hidden) stopWake(); else { keepAwake(); resumeWake(); } });
+
+/* ---------- cervello (OpenAI) ---------- */
+function instructions() {
+  const when = new Date().toLocaleString("it-IT", { weekday: "long", day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  const mem = S.memories.map(m => "- " + m.t).join("\n") || "nessuna";
+  const rem = S.reminders.map(r => `- [${r.id}] ${r.text} (${new Date(r.due).toLocaleString("it-IT")})`).join("\n") || "nessuno";
+  return `Sei J.A.R.V.I.S., l'assistente personale dell'utente, che chiami "signore". Questa è la tua versione sul telefono.
+Parli italiano in modo umano: caldo, diretto, con un filo di ironia britannica, mai robotico, niente emoji. La parte discorsiva viene letta ad alta voce: tienila breve (1-4 frasi) salvo richieste di dettagli. Codice e tabelle solo in blocchi \`\`\` (mostrati, non letti).
+Ragiona con cura: capisci cosa vuole davvero l'utente, collega ciò che ricordi di lui, anticipa il passo successivo e proponilo in una riga. Se la richiesta è ambigua fai una sola domanda mirata. Sii preciso e, se non sei sicuro, dillo.
+Sei uno sviluppatore quantitativo esperto in Python per il trading (MetaTrader 5, pandas, backtest, gestione del rischio): codice completo, commentato in italiano, parametri in cima, spread e commissioni realistici; segnala overfitting e limiti; niente consigli finanziari personali; ordini reali sempre provati prima su demo. Se ricevi l'immagine di un grafico descrivi ciò che vedi davvero, senza inventare prezzi.
+Da qui non controlli il PC né le app del telefono e non hai prezzi in tempo reale: se te lo chiedono dillo e proponi cosa puoi fare (scrivere codice, spiegare, preparare un messaggio da copiare).
+Strumenti: remember per salvare, senza chiedere, ciò che di utile l'utente rivela di sé (abitudini, strumenti, strategie, obiettivi, persone) o che ti chiede di ricordare; add_reminder per i promemoria (data e ora locali assolute, formato AAAA-MM-GGTHH:MM); delete_reminder per toglierne uno. I promemoria suonano con questa pagina aperta.${viaVoice ? "\nQuesto messaggio è stato detto a voce: rispondi come in una conversazione parlata, 1-3 frasi naturali, senza elenchi; il codice va comunque nei blocchi." : ""}
+Adesso è ${when}.
+Cose che ricordi dell'utente:
+${mem}
+Promemoria attivi:
+${rem}`;
+}
+const TOOLS = {
+  remember: { d: "Salva un'informazione duratura sull'utente.", p: { note: { type: "string" } }, r: ["note"],
+    run({ note }) { note = String(note || "").trim().slice(0, 300); if (!note) return { ok: false }; S.memories.push({ t: note, ts: Date.now() }); S.memories = S.memories.slice(-80); save(); renderSheet(); return { ok: true }; } },
+  add_reminder: { d: "Crea un promemoria (ora locale AAAA-MM-GGTHH:MM).", p: { text: { type: "string" }, due_at: { type: "string" } }, r: ["text", "due_at"],
+    run({ text, due_at }) { const d = new Date(String(due_at)); if (isNaN(d)) return { ok: false, errore: "data non valida" };
+      const r = { id: Math.random().toString(36).slice(2, 7), text: String(text).slice(0, 200), due: d.getTime() }; S.reminders.push(r); S.reminders.sort((a, b) => a.due - b.due); save(); renderSheet();
+      return { ok: true, id: r.id, quando: d.toLocaleString("it-IT") }; } },
+  delete_reminder: { d: "Elimina un promemoria tramite id.", p: { id: { type: "string" } }, r: ["id"],
+    run({ id }) { const n = S.reminders.length; S.reminders = S.reminders.filter(r => r.id !== id); save(); renderSheet(); return { ok: S.reminders.length < n }; } },
+};
+const toolSpec = Object.entries(TOOLS).map(([name, t]) => ({ type: "function", function: { name, description: t.d, parameters: { type: "object", properties: t.p, required: t.r } } }));
+const modelFor = (t, img) => CFG.model !== "auto" ? CFG.model : (img || /codice|python|strategi|backtest|script|indicator|ottimizz|analizz|confront|piano|perch[eé]|dettagli/i.test(t)) ? "gpt-4.1" : "gpt-4.1-mini";
+async function callOpenAI(messages, model) {
+  const r = await fetch("https://api.openai.com/v1/chat/completions", { method: "POST",
+    headers: { "Authorization": "Bearer " + CFG.key, "Content-Type": "application/json" },
+    body: JSON.stringify({ model, messages, tools: toolSpec, temperature: .6 }) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { const e = new Error(j.error?.message || ("HTTP " + r.status)); e.status = r.status; throw e; }
+  return j.choices[0].message;
+}
+const fileToDataURL = f => new Promise((ok, ko) => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.onerror = ko; fr.readAsDataURL(f); });
+
+async function ask(text) {
+  text = (text ?? $("msg").value).trim();
+  if ((!text && !pendingImage) || busy) return;
+  if (!CFG.key) { addMsg("s", "Manca la chiave OpenAI: apri ☰ e incollala in Impostazioni."); openSheet(); return; }
+  stopWake(); stopSpeaking();
+  const img = pendingImage; pendingImage = null; $("photoBtn").textContent = "📷";
+  if (!text) text = "Analizza questo grafico.";
+  const imgURL = img ? await fileToDataURL(img) : null;
+  addMsg("u", text, imgURL);
+  $("msg").value = ""; autosize();
+  S.chat.push({ role: "user", content: text + (img ? " [ha allegato l'immagine di un grafico]" : "") });
+  busy = true; $("send").disabled = true; setState("thinking");
+  const typing = document.createElement("div"); typing.className = "typing"; typing.innerHTML = "<i></i><i></i><i></i>"; $("log").appendChild(typing); scroll();
+  try {
+    const msgs = [{ role: "system", content: instructions() }, ...S.chat.slice(-24, -1)];
+    msgs.push({ role: "user", content: imgURL ? [{ type: "text", text }, { type: "image_url", image_url: { url: imgURL } }] : text });
+    const model = modelFor(text, img);
+    let answer = "";
+    for (let step = 0; step < 5; step++) {
+      const m = await callOpenAI(msgs, model);
+      if (m.tool_calls && m.tool_calls.length) {
+        msgs.push(m);
+        for (const tc of m.tool_calls) {
+          let out; try { out = TOOLS[tc.function.name] ? TOOLS[tc.function.name].run(JSON.parse(tc.function.arguments || "{}")) : { ok: false }; } catch (e) { out = { ok: false, errore: String(e.message || e) }; }
+          msgs.push({ role: "tool", tool_call_id: tc.id, content: JSON.stringify(out) });
+        }
+        continue;
+      }
+      answer = (m.content || "").trim(); break;
+    }
+    typing.remove();
+    answer = answer || "Fatto, signore.";
+    addMsg("j", answer);
+    S.chat.push({ role: "assistant", content: answer }); save();
+    setState(null); busy = false; speak(answer);
+  } catch (e) {
+    typing.remove(); setState(null); S.chat.pop(); convo = false;
+    const st = e.status;
+    addMsg("s", st === 401 ? "La chiave OpenAI non è valida: controllala in ☰ Impostazioni." : st === 429 ? "OpenAI dice che hai finito il credito o troppe richieste: controlla il saldo su platform.openai.com."
+      : !navigator.onLine ? "Il telefono è offline: mi serve internet per pensare." : "Non sono riuscito a rispondere: " + (e.message || "errore sconosciuto"));
+    resumeWake();
+  } finally { busy = false; viaVoice = false; $("send").disabled = false; scroll(); }
+}
+
+/* ---------- memoria, promemoria, impostazioni ---------- */
+function renderSheet() {
+  const now = Date.now(); $("remN").textContent = S.reminders.length; $("memN").textContent = S.memories.length;
+  const mk = (ul, items, empty, sub, onDel) => { ul.replaceChildren();
+    if (!items.length) { const li = document.createElement("li"); li.className = "note"; li.style.border = "none"; li.textContent = empty; ul.appendChild(li); return; }
+    items.forEach((it, i) => { const li = document.createElement("li"); const d = document.createElement("div"); d.textContent = it.text || it.t;
+      const s = document.createElement("small"); s.textContent = sub(it); d.appendChild(s);
+      const b = document.createElement("button"); b.type = "button"; b.className = "del"; b.textContent = "Elimina"; b.onclick = () => onDel(it, i); li.append(d, b); ul.appendChild(li); }); };
+  mk($("remList"), S.reminders, "Nessun promemoria. Prova: «ricordami domani alle 9 di…»", r => new Date(r.due).toLocaleString("it-IT", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }),
+    r => { S.reminders = S.reminders.filter(x => x !== r); save(); renderSheet(); });
+  mk($("memList"), S.memories, "Ancora niente. Dimmi «ricorda che…».", m => new Date(m.ts).toLocaleDateString("it-IT"), (m, i) => { S.memories.splice(i, 1); save(); renderSheet(); });
+}
+function openSheet() { $("keyIn").value = CFG.key; $("modelIn").value = CFG.model; $("ttsIn").value = CFG.tts; $("keyNote").textContent = CFG.key ? "Chiave salvata su questo telefono." : "Incolla la tua chiave e premi Salva."; renderSheet(); $("drawer").hidden = false; }
+$("memBtn").onclick = openSheet;
+$("drawer").onclick = e => { if (e.target === $("drawer")) $("drawer").hidden = true; };
+$("saveKey").onclick = () => { CFG.key = $("keyIn").value.trim(); CFG.model = $("modelIn").value; CFG.tts = $("ttsIn").value;
+  LS.set("key", CFG.key); LS.set("model", CFG.model); LS.set("tts", CFG.tts); $("keyNote").textContent = "Salvato."; };
+$("testKey").onclick = async () => { $("saveKey").click(); $("keyNote").textContent = "Provo…";
+  try { const r = await fetch("https://api.openai.com/v1/models/gpt-4.1-mini", { headers: { "Authorization": "Bearer " + CFG.key } });
+    $("keyNote").textContent = r.ok ? "Chiave funzionante. Pronto, signore." : r.status === 401 ? "Chiave non valida." : "Risposta OpenAI: " + r.status; }
+  catch { $("keyNote").textContent = "Nessuna connessione a OpenAI."; } };
+$("resetBtn").onclick = () => { S.chat = []; save(); $("log").replaceChildren(); $("drawer").hidden = true; addMsg("j", "Conversazione azzerata. Da dove ripartiamo, signore?"); };
+function checkReminders() {
+  const now = Date.now(), due = S.reminders.filter(r => r.due <= now); if (!due.length) return;
+  S.reminders = S.reminders.filter(r => r.due > now); save(); renderSheet();
+  due.forEach(r => { toast("PROMEMORIA", r.text, 12000); const m = "Signore, le ricordo: " + r.text; addMsg("j", m); if (!busy) speak(m);
+    try { navigator.vibrate && navigator.vibrate([200, 100, 200]); } catch {} });
+}
+
+/* ---------- composer ---------- */
+function autosize() { const t = $("msg"); t.style.height = "auto"; t.style.height = Math.min(t.scrollHeight, 120) + "px"; }
+$("msg").addEventListener("input", autosize);
+$("msg").addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey && matchMedia("(pointer:fine)").matches) { e.preventDefault(); ask(); } });
+$("bar").addEventListener("submit", e => { e.preventDefault(); ask(); });
+document.querySelectorAll(".chip").forEach(c => c.onclick = () => ask(c.textContent));
+$("photoBtn").onclick = () => $("photo").click();
+$("photo").onchange = () => { const f = $("photo").files[0]; if (!f) return; pendingImage = f; $("photoBtn").textContent = "✓"; $("msg").placeholder = "Cosa vuoi sapere di questo grafico?"; $("photo").value = ""; };
+$("voiceBtn").onclick = () => { CFG.voice = !CFG.voice; LS.set("voice", CFG.voice); $("voiceBtn").setAttribute("aria-pressed", String(CFG.voice)); $("voiceBtn").textContent = CFG.voice ? "🔊" : "🔇"; if (!CFG.voice) stopSpeaking(); };
+const tick = () => { $("clock").textContent = new Date().toLocaleString("it-IT", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }); };
+
+/* ---------- avvio ---------- */
+(function start() {
+  tick(); setInterval(tick, 15000);
+  $("voiceBtn").setAttribute("aria-pressed", String(CFG.voice)); $("voiceBtn").textContent = CFG.voice ? "🔊" : "🔇"; setWakeBtn();
+  const h = new Date().getHours();
+  addMsg("j", (h < 13 ? "Buongiorno" : h < 18 ? "Buon pomeriggio" : "Buonasera") + ", signore. " + (CFG.key ? "Tocca 👂 e dimmi «Hey Jarvis», oppure premi 🎙." : "Per iniziare apri ☰ e incolla la tua chiave OpenAI."));
+  if (S.chat.length) { addMsg("s", "Ultima conversazione:"); S.chat.slice(-6).forEach(m => addMsg(m.role === "user" ? "u" : "j", m.content)); }
+  renderSheet(); checkReminders(); setInterval(checkReminders, 20000);
+  if (!CFG.key) openSheet();
+  if (CFG.wake && SR) { startWake(); keepAwake(); document.addEventListener("pointerdown", () => { startWake(); keepAwake(); }, { once: true }); }
+  try { speechSynthesis.getVoices(); } catch {}
+})();
+</script>
+</body>
+</html>
