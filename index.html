@@ -48,6 +48,11 @@ body.speaking .glow{animation-duration:.7s}body.listening{--core:var(--green)}bo
 pre{position:relative;font-family:var(--f-mono);font-size:12px;line-height:1.5;background:#020a12;border:1px solid var(--line);border-radius:6px;padding:28px 11px 11px;overflow-x:auto;margin:6px 0;text-align:left}
 .cp{position:absolute;top:5px;right:5px;font-family:var(--f-head);font-size:8.5px;letter-spacing:.15em;background:rgba(70,225,255,.12);border:1px solid var(--line);border-radius:4px;padding:4px 7px;cursor:pointer}
 .say{margin-top:4px;background:none;border:1px solid var(--line);border-radius:6px;padding:3px 9px;font-family:var(--f-head);font-size:9px;letter-spacing:.18em;color:var(--cyan);cursor:pointer}
+.ticker{display:flex;gap:6px;overflow-x:auto;padding:8px 0 2px;scrollbar-width:none;flex-shrink:0}.ticker::-webkit-scrollbar{display:none}
+.tk{flex-shrink:0;display:flex;gap:7px;align-items:baseline;background:rgba(70,225,255,.06);border:1px solid var(--line);border-radius:8px;padding:5px 10px;cursor:pointer;font-family:var(--f-mono);font-size:12.5px}
+.tk b{font-family:var(--f-head);font-size:9.5px;letter-spacing:.12em;color:var(--cyan)}.tk .up{color:var(--green)}.tk .dn{color:var(--red)}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:8px}.stats div{background:#020a12;border:1px solid var(--line);border-radius:8px;padding:7px;text-align:center}
+.stats b{display:block;font-family:var(--f-mono);font-size:15px}.stats small{font-size:11.5px;color:var(--muted)}
 .k{color:#ff86c0}.st{color:#a3ffb8}.cm{color:#5e8597;font-style:italic}.nu{color:#ffd27a}
 .chips{display:flex;gap:6px;overflow-x:auto;padding-block:4px 8px;scrollbar-width:none}.chips::-webkit-scrollbar{display:none}
 .chip{flex-shrink:0;background:rgba(70,225,255,.07);border:1px solid var(--line);border-radius:999px;padding:7px 12px;font-size:14.5px;font-weight:600;cursor:pointer;white-space:nowrap}
@@ -88,6 +93,7 @@ pre{position:relative;font-family:var(--f-mono);font-size:12px;line-height:1.5;b
       <button class="ib" id="memBtn" title="Memoria e impostazioni" aria-label="Memoria e impostazioni">☰</button>
     </div>
   </header>
+  <div class="ticker" id="ticker" aria-label="Quotazioni"></div>
   <div class="core-wrap">
     <svg class="core" id="core" viewBox="0 0 200 200" role="button" tabindex="0" aria-label="Parla con JARVIS">
       <defs><radialGradient id="cg"><stop offset="0" stop-color="#fff"/><stop offset=".3" stop-color="#c9f6ff"/><stop offset=".6" stop-color="currentColor" stop-opacity=".7"/><stop offset="1" stop-color="currentColor" stop-opacity="0"/></radialGradient></defs>
@@ -102,9 +108,11 @@ pre{position:relative;font-family:var(--f-mono);font-size:12px;line-height:1.5;b
   </div>
   <div class="log" id="log" aria-live="polite"></div>
   <div class="chips">
+    <button class="chip">Analizza l'oro su H1</button>
+    <button class="chip">Backtest EMA 20/50 su BTC H4</button>
+    <button class="chip">Quanti lotti con 1000$ e rischio 1%?</button>
     <button class="chip">Briefing di oggi</button>
     <button class="chip">Scrivimi una strategia EMA 20/50 su XAUUSD in Python</button>
-    <button class="chip">Spiegami l'RSI in 3 frasi</button>
     <button class="chip">Ricordami alle 18 di controllare l'oro</button>
     <button class="chip">Cosa ricordi di me?</button>
   </div>
@@ -133,11 +141,15 @@ pre{position:relative;font-family:var(--f-mono);font-size:12px;line-height:1.5;b
       <option value="openai">Voce JARVIS (OpenAI, più naturale)</option>
       <option value="browser">Voce del telefono (gratis)</option>
     </select>
+    <label for="tdIn">Chiave Twelve Data (gratis su twelvedata.com: oro e forex in tempo reale)</label>
+    <input id="tdIn" type="password" placeholder="facoltativa" autocomplete="off">
     <div class="row"><button class="btn" id="saveKey" type="button">Salva</button><button class="btn" id="testKey" type="button">Prova la chiave</button></div>
     <p class="note" id="keyNote"></p>
     <h2>PROVA VOCE</h2>
     <div class="row" style="margin-top:0"><button class="btn" id="t1" type="button">1 · Voce telefono</button><button class="btn" id="t2" type="button">2 · Voce JARVIS</button><button class="btn" id="t3" type="button">3 · Lettore audio</button></div>
     <p class="note" id="tNote">Tocca i tre pulsanti uno alla volta e dimmi quali senti.</p>
+    <h2>DIARIO DI TRADING <span id="trN">0</span></h2><div class="stats" id="trStats"></div><ul id="trList"></ul>
+    <h2>ALLARMI DI PREZZO <span id="alN">0</span></h2><ul id="alList"></ul>
     <h2>PROMEMORIA <span id="remN">0</span></h2><ul id="remList"></ul>
     <h2>COSA RICORDO DI TE <span id="memN">0</span></h2><ul id="memList"></ul>
     <h2>CONVERSAZIONE</h2>
@@ -152,9 +164,9 @@ pre{position:relative;font-family:var(--f-mono);font-size:12px;line-height:1.5;b
 const $ = id => document.getElementById(id);
 const LS = { get(k, d) { try { const v = localStorage.getItem("jv_" + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
              set(k, v) { try { localStorage.setItem("jv_" + k, JSON.stringify(v)); } catch {} } };
-const S = { memories: LS.get("memories", []), reminders: LS.get("reminders", []), chat: LS.get("chat", []) };
-const CFG = { key: LS.get("key", ""), model: LS.get("model", "auto"), tts: LS.get("tts", "openai"), voice: LS.get("voice", true), wake: LS.get("wake", false) };
-const save = () => { S.chat = S.chat.slice(-40); LS.set("memories", S.memories); LS.set("reminders", S.reminders); LS.set("chat", S.chat); };
+const S = { memories: LS.get("memories", []), reminders: LS.get("reminders", []), chat: LS.get("chat", []), trades: LS.get("trades", []), alerts: LS.get("alerts", []), watch: LS.get("watch", ["XAUUSD", "BTCUSD", "EURUSD"]) };
+const CFG = { key: LS.get("key", ""), model: LS.get("model", "auto"), tts: LS.get("tts", "openai"), voice: LS.get("voice", true), wake: LS.get("wake", false), td: LS.get("td", "") };
+const save = () => { S.chat = S.chat.slice(-40); LS.set("memories", S.memories); LS.set("reminders", S.reminders); LS.set("chat", S.chat); LS.set("trades", S.trades); LS.set("alerts", S.alerts); LS.set("watch", S.watch); };
 let busy = false, pendingImage = null, viaVoice = false;
 
 /* ---------- interfaccia ---------- */
@@ -338,7 +350,127 @@ $("core").onclick = () => { if (CFG.wake && needTap) { needTap = false; startWak
 $("core").onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $("micBtn").click(); } };
 document.addEventListener("visibilitychange", () => { if (document.hidden) stopWake(); else { keepAwake(); resumeWake(); } });
 
+/* ---------- mercati: dati, indicatori, backtest, rischio ---------- */
+const CRYPTO = /^(BTC|ETH|SOL|XRP|BNB|ADA|DOGE|LTC|AVAX|DOT|LINK|TRX|TON|SHIB|PEPE|SUI)/;
+const ALIAS = { ORO: "XAUUSD", GOLD: "XAUUSD", ARGENTO: "XAGUSD", SILVER: "XAGUSD", BITCOIN: "BTCUSD", BTC: "BTCUSD", ETHEREUM: "ETHUSD", ETH: "ETHUSD", EURODOLLARO: "EURUSD" };
+const normSym = s => { s = String(s || "").toUpperCase().replace(/[\s/._-]/g, ""); return ALIAS[s] || s; };
+const isCrypto = s => CRYPTO.test(s);
+const binSym = s => s.endsWith("USDT") ? s : s.replace(/USD$/, "") + "USDT";
+const tdSym = s => /^[A-Z]{6}$/.test(s) ? s.slice(0, 3) + "/" + s.slice(3) : s;
+const TF = { M1: ["1m", "1min"], M5: ["5m", "5min"], M15: ["15m", "15min"], M30: ["30m", "30min"], H1: ["1h", "1h"], H4: ["4h", "4h"], D1: ["1d", "1day"], W1: ["1w", "1week"] };
+const normTf = t => { t = String(t || "H1").toUpperCase().replace(/\s/g, ""); const a = { "1H": "H1", "4H": "H4", "15M": "M15", "5M": "M5", "30M": "M30", "1D": "D1", D: "D1", H: "H1", "1W": "W1", "15MIN": "M15", "5MIN": "M5", "1MIN": "M1" }; return TF[t] ? t : a[t] || "H1"; };
+const r6 = v => v == null || !isFinite(v) ? null : +(+v).toPrecision(6);
+const NO_TD = "Per oro, argento e forex serve la chiave gratuita Twelve Data: aprila su twelvedata.com e incollala in ☰ Impostazioni.";
+async function getCandles(sym, tf, n = 500) {
+  sym = normSym(sym); tf = normTf(tf);
+  if (isCrypto(sym)) {
+    const r = await fetch(`https://api.binance.com/api/v3/klines?symbol=${binSym(sym)}&interval=${TF[tf][0]}&limit=${Math.min(n, 1000)}`);
+    const j = await r.json(); if (!r.ok) throw new Error("Binance: " + (j.msg || r.status));
+    return { sym, tf, src: "Binance", c: j.map(k => ({ t: k[0], o: +k[1], h: +k[2], l: +k[3], c: +k[4] })) };
+  }
+  if (!CFG.td) throw new Error(NO_TD);
+  const r = await fetch(`https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(tdSym(sym))}&interval=${TF[tf][1]}&outputsize=${Math.min(n, 5000)}&order=asc&apikey=${encodeURIComponent(CFG.td)}`);
+  const j = await r.json(); if (j.status !== "ok") throw new Error("Twelve Data: " + (j.message || "errore"));
+  return { sym, tf, src: "Twelve Data", c: j.values.map(v => ({ t: Date.parse(v.datetime.replace(" ", "T")), o: +v.open, h: +v.high, l: +v.low, c: +v.close })) };
+}
+async function getPrice(sym) {
+  sym = normSym(sym);
+  if (isCrypto(sym)) { const r = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${binSym(sym)}`); const j = await r.json(); if (!r.ok) throw new Error("Binance: " + (j.msg || r.status));
+    return { simbolo: sym, prezzo: r6(+j.lastPrice), var_24h_pct: r6(+j.priceChangePercent), fonte: "Binance" }; }
+  if (CFG.td) { const r = await fetch(`https://api.twelvedata.com/quote?symbol=${encodeURIComponent(tdSym(sym))}&apikey=${encodeURIComponent(CFG.td)}`); const j = await r.json();
+    if (j.status === "error" || j.close == null) throw new Error("Twelve Data: " + (j.message || "simbolo non trovato"));
+    return { simbolo: sym, prezzo: r6(+j.close), var_oggi_pct: r6(+j.percent_change), fonte: "Twelve Data" }; }
+  const m = sym.match(/^(XAU|XAG)/);
+  if (m) { const r = await fetch("https://api.gold-api.com/price/" + m[1]); const j = await r.json(); return { simbolo: sym, prezzo: r6(+j.price), fonte: "gold-api.com, aggiornato " + (j.updatedAtReadable || j.updatedAt || "?") }; }
+  throw new Error(NO_TD);
+}
+const ema = (a, p) => { const k = 2 / (p + 1); let e = a[0]; return a.map((v, i) => e = i ? v * k + e * (1 - k) : v); };
+function rsiA(c, p = 14) { let g = 0, l = 0; const o = [null];
+  for (let i = 1; i < c.length; i++) { const d = c[i] - c[i - 1], up = Math.max(d, 0), dn = Math.max(-d, 0);
+    if (i <= p) { g += up; l += dn; if (i === p) { g /= p; l /= p; } } else { g = (g * (p - 1) + up) / p; l = (l * (p - 1) + dn) / p; }
+    o[i] = i >= p ? (l === 0 ? 100 : 100 - 100 / (1 + g / l)) : null; } return o; }
+function atrA(k, p = 14) { let a = 0; return k.map((x, i) => { const tr = i ? Math.max(x.h - x.l, Math.abs(x.h - k[i - 1].c), Math.abs(x.l - k[i - 1].c)) : x.h - x.l; return a = i < p ? (a * i + tr) / (i + 1) : (a * (p - 1) + tr) / p; }); }
+function analyze(d) {
+  const k = d.c, c = k.map(x => x.c), n = c.length - 1;
+  if (n < 60) throw new Error("dati insufficienti");
+  const e20 = ema(c, 20), e50 = ema(c, 50), e200 = ema(c, 200), R = rsiA(c), A = atrA(k), f = ema(c, 12), s2 = ema(c, 26);
+  const macd = c.map((_, i) => f[i] - s2[i]), sig = ema(macd, 9), last = k.slice(-50);
+  const prevDay = d.tf !== "D1" ? null : k[n - 1];
+  const trend = c[n] > e50[n] && e50[n] > e200[n] ? "rialzista" : c[n] < e50[n] && e50[n] < e200[n] ? "ribassista" : "laterale o misto";
+  const out = { simbolo: d.sym, timeframe: d.tf, fonte: d.src, ultima_candela: new Date(k[n].t).toLocaleString("it-IT"), prezzo: r6(c[n]),
+    ema20: r6(e20[n]), ema50: r6(e50[n]), ema200: n >= 200 ? r6(e200[n]) : "storico corto", rsi14: r6(R[n]), atr14: r6(A[n]),
+    macd: r6(macd[n]), macd_segnale: r6(sig[n]), macd_istogramma: r6(macd[n] - sig[n]), massimo_50: r6(Math.max(...last.map(x => x.h))), minimo_50: r6(Math.min(...last.map(x => x.l))),
+    trend, var_20_candele_pct: r6((c[n] / c[n - 20] - 1) * 100), ultime_5: k.slice(-5).map(x => [r6(x.o), r6(x.h), r6(x.l), r6(x.c)]) };
+  if (prevDay) { const P = (prevDay.h + prevDay.l + prevDay.c) / 3; Object.assign(out, { pivot: r6(P), R1: r6(2 * P - prevDay.l), S1: r6(2 * P - prevDay.h) }); }
+  return out;
+}
+function backtest(d, o) {
+  const fast = +o.fast || 20, slow = +o.slow || 50, slA = +o.sl_atr || 1.5, tpA = +o.tp_atr || 3, side = o.direzione || "entrambe", cost = +o.costo_atr || 0.05;
+  const k = d.c, c = k.map(x => x.c), F = ema(c, fast), Sl = ema(c, slow), A = atrA(k), tr = []; let pos = null;
+  for (let i = Math.max(slow, 15) + 2; i < k.length; i++) {
+    if (!pos) { const up = F[i - 1] > Sl[i - 1] && F[i - 2] <= Sl[i - 2], dn = F[i - 1] < Sl[i - 1] && F[i - 2] >= Sl[i - 2];
+      const dir = up && side !== "solo vendite" ? 1 : dn && side !== "solo acquisti" ? -1 : 0;
+      if (dir) { const e = k[i].o, risk = A[i - 1] * slA; pos = { dir, e, risk, sl: e - dir * risk, tp: e + dir * A[i - 1] * tpA, t: k[i].t, costR: (A[i - 1] * cost) / risk }; } }
+    if (pos) { const x = k[i]; let ex = null;
+      if (pos.dir > 0) { if (x.l <= pos.sl) ex = pos.sl; else if (x.h >= pos.tp) ex = pos.tp; } else { if (x.h >= pos.sl) ex = pos.sl; else if (x.l <= pos.tp) ex = pos.tp; }
+      if (ex != null) { tr.push((ex - pos.e) * pos.dir / pos.risk - pos.costR); pos = null; } }
+  }
+  const w = tr.filter(t => t > 0), l = tr.filter(t => t <= 0), sum = a => a.reduce((x, y) => x + y, 0); let eq = 0, pk = 0, dd = 0, streak = 0, maxL = 0;
+  tr.forEach(t => { eq += t; pk = Math.max(pk, eq); dd = Math.max(dd, pk - eq); streak = t <= 0 ? streak + 1 : 0; maxL = Math.max(maxL, streak); });
+  return { strategia: `incrocio EMA ${fast}/${slow}, SL ${slA}×ATR, TP ${tpA}×ATR, ${side}`, simbolo: d.sym, timeframe: d.tf, candele: k.length,
+    periodo: new Date(k[0].t).toLocaleDateString("it-IT") + " → " + new Date(k[k.length - 1].t).toLocaleDateString("it-IT"),
+    operazioni: tr.length, vincenti_pct: tr.length ? r6(w.length / tr.length * 100) : 0, risultato_R: r6(eq), media_R: tr.length ? r6(eq / tr.length) : 0,
+    profit_factor: l.length ? r6(sum(w) / Math.abs(sum(l) || 1)) : null, max_drawdown_R: r6(dd), max_perdite_di_fila: maxL,
+    nota: "Risultati in R (1R = rischio per operazione), costi stimati " + cost + "×ATR; se SL e TP cadono nella stessa candela conta lo SL. Campione breve: non è una garanzia." };
+}
+function positionSize({ balance, risk_pct, entry, stop, symbol }) {
+  const sym = normSym(symbol), bal = +balance, rp = +risk_pct || 1, e = +entry, st = +stop, dist = Math.abs(e - st);
+  if (!(bal > 0) || !(dist > 0)) throw new Error("servono saldo, entrata e stop validi");
+  const size = /^XAU/.test(sym) ? 100 : /^XAG/.test(sym) ? 5000 : isCrypto(sym) ? 1 : /^[A-Z]{6}$/.test(sym) ? 100000 : 1;
+  let perLot = dist * size, nota = "Conto in USD.";
+  if (/^USD[A-Z]{3}$/.test(sym)) perLot = dist * size / e; else if (/^[A-Z]{6}$/.test(sym) && !/USD$/.test(sym) && !/^X/.test(sym)) nota = "Coppia incrociata: valore stimato, controllalo su MT5.";
+  const risk = bal * rp / 100, lots = Math.floor(risk / perLot * 100) / 100;
+  return { simbolo: sym, rischio_usd: r6(risk), distanza_stop: r6(dist), perdita_per_lotto_usd: r6(perLot), lotti: lots, unita: isCrypto(sym) ? r6(risk / dist) : undefined,
+    nota: nota + (lots < 0.01 ? " Lotto sotto il minimo (0,01): allarga il conto o riduci lo stop." : "") };
+}
+function tradeStats(sym) {
+  const T = S.trades.filter(t => !sym || t.symbol === normSym(sym)), w = T.filter(t => t.pnl > 0), Rs = T.filter(t => t.r != null);
+  const by = {}; T.forEach(t => { by[t.symbol] = (by[t.symbol] || 0) + (+t.pnl || 0); });
+  return { operazioni: T.length, vincenti_pct: T.length ? r6(w.length / T.length * 100) : 0, pnl_totale: r6(T.reduce((a, t) => a + (+t.pnl || 0), 0)),
+    media_R: Rs.length ? r6(Rs.reduce((a, t) => a + +t.r, 0) / Rs.length) : null, pnl_per_simbolo: by, ultime: T.slice(-8) };
+}
+/* quotazioni in alto */
+async function refreshTicker() {
+  if (document.hidden) return;
+  const box = $("ticker"); const items = await Promise.all(S.watch.slice(0, 6).map(s => getPrice(s).catch(() => null)));
+  box.replaceChildren();
+  items.forEach((q, i) => { if (!q) return; const d = document.createElement("button"); d.type = "button"; d.className = "tk";
+    const ch = q.var_24h_pct ?? q.var_oggi_pct; const b = document.createElement("b"); b.textContent = q.simbolo;
+    const pr = document.createElement("span"); pr.textContent = q.prezzo; d.append(b, pr);
+    if (ch != null) { const c = document.createElement("span"); c.className = ch >= 0 ? "up" : "dn"; c.textContent = (ch >= 0 ? "+" : "") + (+ch).toFixed(2) + "%"; d.appendChild(c); }
+    d.onclick = () => ask(`Analizza ${q.simbolo} su H1 e dimmi cosa vedi`); box.appendChild(d); });
+}
+async function checkAlerts() {
+  if (!S.alerts.length) return;
+  const syms = [...new Set(S.alerts.map(a => a.symbol))];
+  for (const sym of syms) {
+    let q; try { q = await getPrice(sym); } catch { continue; }
+    S.alerts.filter(a => a.symbol === sym && (a.op === "sopra" ? q.prezzo >= a.level : q.prezzo <= a.level)).forEach(a => {
+      S.alerts = S.alerts.filter(x => x !== a);
+      const m = `Signore, ${sym} è ${a.op} ${a.level}: ora quota ${q.prezzo}.` + (a.note ? " " + a.note : "");
+      toast("ALLARME PREZZO", m, 15000); addMsg("j", m); try { navigator.vibrate && navigator.vibrate([300, 120, 300]); } catch {} if (!busy) speak(m);
+    });
+  }
+  save(); renderSheet();
+}
+
 /* ---------- cervello (OpenAI) ---------- */
+function sessions() {
+  const h = new Date().getUTCHours() + new Date().getUTCMinutes() / 60, d = new Date().getUTCDay(), on = [];
+  if (d === 6 || (d === 0 && h < 21) || (d === 5 && h >= 21)) return "fine settimana, forex e oro chiusi (le cripto sono aperte)";
+  if (h >= 23 || h < 8) on.push("Asia (Tokyo/Sydney)"); if (h >= 7 && h < 16) on.push("Londra"); if (h >= 12.5 && h < 21) on.push("New York");
+  return (on.join(" + ") || "transizione tra sessioni, liquidità bassa") + (h >= 12.5 && h < 16 ? "; sovrapposizione Londra-New York, la più volatile" : "");
+}
 function instructions() {
   const when = new Date().toLocaleString("it-IT", { weekday: "long", day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
   const mem = S.memories.map(m => "- " + m.t).join("\n") || "nessuna";
@@ -347,7 +479,9 @@ function instructions() {
 Parli italiano in modo umano: caldo, diretto, con un filo di ironia britannica, mai robotico, niente emoji. La parte discorsiva viene letta ad alta voce: tienila breve (1-4 frasi) salvo richieste di dettagli. Codice e tabelle solo in blocchi \`\`\` (mostrati, non letti).
 Ragiona con cura: capisci cosa vuole davvero l'utente, collega ciò che ricordi di lui, anticipa il passo successivo e proponilo in una riga. Se la richiesta è ambigua fai una sola domanda mirata. Sii preciso e, se non sei sicuro, dillo.
 Sei uno sviluppatore quantitativo esperto in Python per il trading (MetaTrader 5, pandas, backtest, gestione del rischio): codice completo, commentato in italiano, parametri in cima, spread e commissioni realistici; segnala overfitting e limiti; niente consigli finanziari personali; ordini reali sempre provati prima su demo. Se ricevi l'immagine di un grafico descrivi ciò che vedi davvero, senza inventare prezzi.
-Da qui non controlli il PC né le app del telefono e non hai prezzi in tempo reale: se te lo chiedono dillo e proponi cosa puoi fare (scrivere codice, spiegare, preparare un messaggio da copiare).
+Hai dati di mercato veri tramite gli strumenti: get_price (quotazione), analyze_market (candele con EMA 20/50/200, RSI, ATR, MACD, massimi e minimi), backtest_ema (prova storica veloce di un incrocio di medie con stop e target in ATR), position_size (lotti in base al rischio), price_alert (allarme di prezzo), log_trade e trade_stats (diario delle operazioni), set_watchlist (quotazioni in alto). Non inventare MAI prezzi o livelli: prima chiedi i dati con gli strumenti e cita fonte e ora. Quando proponi un'idea operativa dai: direzione, zona di entrata, stop (di solito 1-2 ATR oltre un livello), target, rapporto rischio/rendimento e cosa la invaliderebbe; consiglia di rischiare al massimo l'1-2% del conto; ricorda che è un'analisi, non un consiglio finanziario. Se uno strumento risponde che manca la chiave Twelve Data, spiega in una frase come averla gratis. Simboli: XAUUSD, XAGUSD, EURUSD, GBPUSD, USDJPY, BTCUSD, ETHUSD ecc.
+Non controlli il PC, MetaTrader o le app del telefono e non apri ordini: per eseguire serve il JARVIS sul PC.
+Sessioni di mercato adesso (ora italiana ${new Date().toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })}): ${sessions()}.
 Strumenti: remember per salvare, senza chiedere, ciò che di utile l'utente rivela di sé (abitudini, strumenti, strategie, obiettivi, persone) o che ti chiede di ricordare; add_reminder per i promemoria (data e ora locali assolute, formato AAAA-MM-GGTHH:MM); delete_reminder per toglierne uno. I promemoria suonano con questa pagina aperta.${viaVoice ? "\nQuesto messaggio è stato detto a voce: rispondi come in una conversazione parlata, 1-3 frasi naturali, senza elenchi; il codice va comunque nei blocchi." : ""}
 Adesso è ${when}.
 Cose che ricordi dell'utente:
@@ -362,11 +496,28 @@ const TOOLS = {
     run({ text, due_at }) { const d = new Date(String(due_at)); if (isNaN(d)) return { ok: false, errore: "data non valida" };
       const r = { id: Math.random().toString(36).slice(2, 7), text: String(text).slice(0, 200), due: d.getTime() }; S.reminders.push(r); S.reminders.sort((a, b) => a.due - b.due); save(); renderSheet();
       return { ok: true, id: r.id, quando: d.toLocaleString("it-IT") }; } },
+  get_price: { d: "Quotazione attuale di uno o più simboli.", p: { symbols: { type: "array", items: { type: "string" } } }, r: ["symbols"],
+    async run({ symbols }) { return Promise.all((symbols || []).slice(0, 6).map(s => getPrice(s).catch(e => ({ simbolo: s, errore: e.message })))); } },
+  analyze_market: { d: "Analisi tecnica su candele reali: EMA20/50/200, RSI14, ATR14, MACD, massimi/minimi 50, trend, ultime 5 candele [o,h,l,c] (pivot su D1).", p: { symbol: { type: "string" }, timeframe: { type: "string", description: "M5, M15, M30, H1, H4, D1, W1" } }, r: ["symbol"],
+    async run({ symbol, timeframe }) { return analyze(await getCandles(symbol, timeframe || "H1", 400)); } },
+  backtest_ema: { d: "Backtest veloce su dati reali di un incrocio di EMA con stop e target in multipli di ATR.", p: { symbol: { type: "string" }, timeframe: { type: "string" }, fast: { type: "number" }, slow: { type: "number" }, sl_atr: { type: "number" }, tp_atr: { type: "number" }, direzione: { type: "string", enum: ["entrambe", "solo acquisti", "solo vendite"] } }, r: ["symbol"],
+    async run(o) { return backtest(await getCandles(o.symbol, o.timeframe || "H1", 1000), o); } },
+  position_size: { d: "Calcola i lotti in base a saldo, % di rischio, entrata e stop (conto in USD).", p: { symbol: { type: "string" }, balance: { type: "number" }, risk_pct: { type: "number" }, entry: { type: "number" }, stop: { type: "number" } }, r: ["symbol", "balance", "entry", "stop"],
+    run: positionSize },
+  price_alert: { d: "Crea un allarme quando il prezzo va sopra o sotto un livello (controllato ogni minuto con la pagina aperta).", p: { symbol: { type: "string" }, condizione: { type: "string", enum: ["sopra", "sotto"] }, livello: { type: "number" }, nota: { type: "string" } }, r: ["symbol", "condizione", "livello"],
+    run({ symbol, condizione, livello, nota }) { const a = { id: Math.random().toString(36).slice(2, 7), symbol: normSym(symbol), op: condizione, level: +livello, note: nota || "" }; S.alerts.push(a); save(); renderSheet(); return { ok: true, id: a.id }; } },
+  delete_alert: { d: "Elimina un allarme di prezzo tramite id.", p: { id: { type: "string" } }, r: ["id"],
+    run({ id }) { S.alerts = S.alerts.filter(a => a.id !== id); save(); renderSheet(); return { ok: true }; } },
+  log_trade: { d: "Registra un'operazione nel diario di trading.", p: { symbol: { type: "string" }, side: { type: "string", enum: ["buy", "sell"] }, entry: { type: "number" }, exit: { type: "number" }, lots: { type: "number" }, pnl: { type: "number", description: "profitto/perdita in valuta del conto" }, r: { type: "number", description: "risultato in R se noto" }, note: { type: "string" } }, r: ["symbol", "side", "pnl"],
+    run(t) { const x = { id: Math.random().toString(36).slice(2, 7), ts: Date.now(), ...t, symbol: normSym(t.symbol) }; S.trades.push(x); S.trades = S.trades.slice(-500); save(); renderSheet(); return { ok: true, statistiche: tradeStats() }; } },
+  trade_stats: { d: "Statistiche del diario di trading (facoltativo per simbolo).", p: { symbol: { type: "string" } }, r: [], run({ symbol }) { return tradeStats(symbol); } },
+  set_watchlist: { d: "Imposta i simboli mostrati nelle quotazioni in alto (max 6).", p: { symbols: { type: "array", items: { type: "string" } } }, r: ["symbols"],
+    run({ symbols }) { S.watch = (symbols || []).map(normSym).slice(0, 6); save(); refreshTicker(); return { ok: true, watchlist: S.watch }; } },
   delete_reminder: { d: "Elimina un promemoria tramite id.", p: { id: { type: "string" } }, r: ["id"],
     run({ id }) { const n = S.reminders.length; S.reminders = S.reminders.filter(r => r.id !== id); save(); renderSheet(); return { ok: S.reminders.length < n }; } },
 };
 const toolSpec = Object.entries(TOOLS).map(([name, t]) => ({ type: "function", function: { name, description: t.d, parameters: { type: "object", properties: t.p, required: t.r } } }));
-const modelFor = (t, img) => CFG.model !== "auto" ? CFG.model : (img || /codice|python|strategi|backtest|script|indicator|ottimizz|analizz|confront|piano|perch[eé]|dettagli/i.test(t)) ? "gpt-4.1" : "gpt-4.1-mini";
+const modelFor = (t, img) => CFG.model !== "auto" ? CFG.model : (img || /codice|python|strategi|backtest|script|indicator|ottimizz|analizz|confront|piano|perch[eé]|dettagli|entrat|setup|trade|operazion|lott|rischio|livell|supporti|resistenz/i.test(t)) ? "gpt-4.1" : "gpt-4.1-mini";
 async function callOpenAI(messages, model) {
   const r = await fetch("https://api.openai.com/v1/chat/completions", { method: "POST",
     headers: { "Authorization": "Bearer " + CFG.key, "Content-Type": "application/json" },
@@ -400,7 +551,7 @@ async function ask(text) {
       if (m.tool_calls && m.tool_calls.length) {
         msgs.push(m);
         for (const tc of m.tool_calls) {
-          let out; try { out = TOOLS[tc.function.name] ? TOOLS[tc.function.name].run(JSON.parse(tc.function.arguments || "{}")) : { ok: false }; } catch (e) { out = { ok: false, errore: String(e.message || e) }; }
+          let out; try { out = TOOLS[tc.function.name] ? await TOOLS[tc.function.name].run(JSON.parse(tc.function.arguments || "{}")) : { ok: false }; } catch (e) { out = { ok: false, errore: String(e.message || e) }; }
           msgs.push({ role: "tool", tool_call_id: tc.id, content: JSON.stringify(out) });
         }
         continue;
@@ -431,12 +582,17 @@ function renderSheet() {
       const b = document.createElement("button"); b.type = "button"; b.className = "del"; b.textContent = "Elimina"; b.onclick = () => onDel(it, i); li.append(d, b); ul.appendChild(li); }); };
   mk($("remList"), S.reminders, "Nessun promemoria. Prova: «ricordami domani alle 9 di…»", r => new Date(r.due).toLocaleString("it-IT", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }),
     r => { S.reminders = S.reminders.filter(x => x !== r); save(); renderSheet(); });
+  $("trN").textContent = S.trades.length; $("alN").textContent = S.alerts.length;
+  const st = tradeStats(); $("trStats").replaceChildren(...[["Operazioni", st.operazioni], ["Vincenti", st.vincenti_pct + "%"], ["Risultato", st.pnl_totale]].map(([a, b]) => { const d = document.createElement("div"); const x = document.createElement("b"); x.textContent = b; const y = document.createElement("small"); y.textContent = a; d.append(x, y); return d; }));
+  mk($("trList"), S.trades.slice(-10).reverse().map(t => ({ ...t, text: `${t.symbol} ${t.side === "sell" ? "VENDITA" : "ACQUISTO"} ${t.pnl >= 0 ? "+" : ""}${t.pnl}${t.note ? " · " + t.note : ""}` })), "Nessuna operazione. Dimmi «registra un buy su oro chiuso a +80».",
+    t => new Date(t.ts).toLocaleString("it-IT", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) + (t.entry ? ` · ${t.entry} → ${t.exit ?? "?"}` : ""), t => { S.trades = S.trades.filter(x => x.id !== t.id); save(); renderSheet(); });
+  mk($("alList"), S.alerts.map(a => ({ ...a, text: `${a.symbol} ${a.op} ${a.level}` })), "Nessun allarme. Prova: «avvisami se l'oro va sopra 4200».", a => a.note || "controllo ogni minuto", a => { S.alerts = S.alerts.filter(x => x.id !== a.id); save(); renderSheet(); });
   mk($("memList"), S.memories, "Ancora niente. Dimmi «ricorda che…».", m => new Date(m.ts).toLocaleDateString("it-IT"), (m, i) => { S.memories.splice(i, 1); save(); renderSheet(); });
 }
-function openSheet() { $("keyIn").value = CFG.key; $("modelIn").value = CFG.model; $("ttsIn").value = CFG.tts; $("keyNote").textContent = CFG.key ? "Chiave salvata su questo telefono." : "Incolla la tua chiave e premi Salva."; renderSheet(); $("drawer").hidden = false; }
+function openSheet() { $("tdIn").value = CFG.td; $("keyIn").value = CFG.key; $("modelIn").value = CFG.model; $("ttsIn").value = CFG.tts; $("keyNote").textContent = CFG.key ? "Chiave salvata su questo telefono." : "Incolla la tua chiave e premi Salva."; renderSheet(); $("drawer").hidden = false; }
 $("memBtn").onclick = openSheet;
 $("drawer").onclick = e => { if (e.target === $("drawer")) $("drawer").hidden = true; };
-$("saveKey").onclick = () => { CFG.key = $("keyIn").value.trim(); CFG.model = $("modelIn").value; CFG.tts = $("ttsIn").value;
+$("saveKey").onclick = () => { CFG.td = $("tdIn").value.trim(); LS.set("td", CFG.td); refreshTicker(); CFG.key = $("keyIn").value.trim(); CFG.model = $("modelIn").value; CFG.tts = $("ttsIn").value;
   LS.set("key", CFG.key); LS.set("model", CFG.model); LS.set("tts", CFG.tts); $("keyNote").textContent = "Salvato."; };
 $("testKey").onclick = async () => { $("saveKey").click(); $("keyNote").textContent = "Provo…";
   try { const r = await fetch("https://api.openai.com/v1/models/gpt-4.1-mini", { headers: { "Authorization": "Bearer " + CFG.key } });
@@ -480,6 +636,8 @@ const tick = () => { $("clock").textContent = new Date().toLocaleString("it-IT",
   addMsg("j", (h < 13 ? "Buongiorno" : h < 18 ? "Buon pomeriggio" : "Buonasera") + ", signore. " + (CFG.key ? "Tocca 👂 e dimmi «Hey Jarvis», oppure premi 🎙." : "Per iniziare apri ☰ e incolla la tua chiave OpenAI."));
   if (S.chat.length) { addMsg("s", "Ultima conversazione:"); S.chat.slice(-6).forEach(m => addMsg(m.role === "user" ? "u" : "j", m.content)); }
   renderSheet(); checkReminders(); setInterval(checkReminders, 20000);
+  refreshTicker(); setInterval(refreshTicker, 60000); setInterval(checkAlerts, 60000); setTimeout(checkAlerts, 5000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) refreshTicker(); });
   if (!CFG.key) openSheet();
   if (CFG.wake && SR) { startWake(false); keepAwake(); document.addEventListener("pointerdown", () => { needTap = false; startWake(true); keepAwake(); }, { once: true }); }
   if (!SR) addMsg("s", IOS ? "Su iPhone per parlarmi apri questa pagina direttamente in Safari (non dall'icona della Home)." : "Per parlarmi apri questa pagina con Google Chrome.");
