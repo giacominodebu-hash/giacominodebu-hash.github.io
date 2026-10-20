@@ -53,6 +53,10 @@ pre{position:relative;font-family:var(--f-mono);font-size:12px;line-height:1.5;b
 .tk b{font-family:var(--f-head);font-size:9.5px;letter-spacing:.12em;color:var(--cyan)}.tk .up{color:var(--green)}.tk .dn{color:var(--red)}
 .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:8px}.stats div{background:#020a12;border:1px solid var(--line);border-radius:8px;padding:7px;text-align:center}
 .stats b{display:block;font-family:var(--f-mono);font-size:15px}.stats small{font-size:11.5px;color:var(--muted)}
+.act .txt{border-left-color:var(--amber)}
+.act b{display:block;font-family:var(--f-head);font-size:10px;letter-spacing:.2em;color:var(--amber);margin-bottom:4px}
+.act .what{font-size:15px;white-space:pre-wrap;margin-bottom:8px;color:#e9dcc4}
+.abtn{display:inline-block;margin:0 6px 6px 0;background:rgba(255,184,77,.14);border:1px solid var(--amber);border-radius:10px;padding:10px 16px;color:#ffe2b0;font-weight:700;font-size:16px;text-decoration:none;cursor:pointer}
 .k{color:#ff86c0}.st{color:#a3ffb8}.cm{color:#5e8597;font-style:italic}.nu{color:#ffd27a}
 .chips{display:flex;gap:6px;overflow-x:auto;padding-block:4px 8px;scrollbar-width:none}.chips::-webkit-scrollbar{display:none}
 .chip{flex-shrink:0;background:rgba(70,225,255,.07);border:1px solid var(--line);border-radius:999px;padding:7px 12px;font-size:14.5px;font-weight:600;cursor:pointer;white-space:nowrap}
@@ -112,6 +116,8 @@ pre{position:relative;font-family:var(--f-mono);font-size:12px;line-height:1.5;b
     <button class="chip">Backtest EMA 20/50 su BTC H4</button>
     <button class="chip">Quanti lotti con 1000$ e rischio 1%?</button>
     <button class="chip">Briefing di oggi</button>
+    <button class="chip">Che notizie ci sono sui mercati oggi?</button>
+    <button class="chip">Scrivi su WhatsApp a…</button>
     <button class="chip">Scrivimi una strategia EMA 20/50 su XAUUSD in Python</button>
     <button class="chip">Ricordami alle 18 di controllare l'oro</button>
     <button class="chip">Cosa ricordi di me?</button>
@@ -150,6 +156,8 @@ pre{position:relative;font-family:var(--f-mono);font-size:12px;line-height:1.5;b
     <p class="note" id="tNote">Tocca i tre pulsanti uno alla volta e dimmi quali senti.</p>
     <h2>DIARIO DI TRADING <span id="trN">0</span></h2><div class="stats" id="trStats"></div><ul id="trList"></ul>
     <h2>ALLARMI DI PREZZO <span id="alN">0</span></h2><ul id="alList"></ul>
+    <h2>CONTATTI <span id="ctN">0</span></h2><ul id="ctList"></ul>
+    <h2>LISTE <span id="lsN">0</span></h2><ul id="lsList"></ul>
     <h2>PROMEMORIA <span id="remN">0</span></h2><ul id="remList"></ul>
     <h2>COSA RICORDO DI TE <span id="memN">0</span></h2><ul id="memList"></ul>
     <h2>CONVERSAZIONE</h2>
@@ -164,9 +172,9 @@ pre{position:relative;font-family:var(--f-mono);font-size:12px;line-height:1.5;b
 const $ = id => document.getElementById(id);
 const LS = { get(k, d) { try { const v = localStorage.getItem("jv_" + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
              set(k, v) { try { localStorage.setItem("jv_" + k, JSON.stringify(v)); } catch {} } };
-const S = { memories: LS.get("memories", []), reminders: LS.get("reminders", []), chat: LS.get("chat", []), trades: LS.get("trades", []), alerts: LS.get("alerts", []), watch: LS.get("watch", ["XAUUSD", "BTCUSD", "EURUSD"]) };
+const S = { memories: LS.get("memories", []), reminders: LS.get("reminders", []), chat: LS.get("chat", []), trades: LS.get("trades", []), alerts: LS.get("alerts", []), watch: LS.get("watch", ["XAUUSD", "BTCUSD", "EURUSD"]), contacts: LS.get("contacts", []), lists: LS.get("lists", {}) };
 const CFG = { key: LS.get("key", ""), model: LS.get("model", "auto"), tts: LS.get("tts", "openai"), voice: LS.get("voice", true), wake: LS.get("wake", false), td: LS.get("td", "") };
-const save = () => { S.chat = S.chat.slice(-40); LS.set("memories", S.memories); LS.set("reminders", S.reminders); LS.set("chat", S.chat); LS.set("trades", S.trades); LS.set("alerts", S.alerts); LS.set("watch", S.watch); };
+const save = () => { S.chat = S.chat.slice(-40); LS.set("memories", S.memories); LS.set("reminders", S.reminders); LS.set("chat", S.chat); LS.set("trades", S.trades); LS.set("alerts", S.alerts); LS.set("watch", S.watch); LS.set("contacts", S.contacts); LS.set("lists", S.lists); };
 let busy = false, pendingImage = null, viaVoice = false;
 
 /* ---------- interfaccia ---------- */
@@ -305,7 +313,11 @@ function listen() {
   };
   try { rec.start(); listening = true; $("micBtn").classList.add("on"); setState("listening"); } catch { resumeWake(); }
 }
-function afterSpeak() { if (convo && !busy && !micDenied) setTimeout(listen, 350); else resumeWake(); }
+let pendingOpen = null;
+function afterSpeak() {
+  if (pendingOpen) { const h = pendingOpen; pendingOpen = null; convo = false; setTimeout(() => { location.href = h; }, 250); return; }   // apre WhatsApp, telefono, SMS dopo aver parlato
+  if (convo && !busy && !micDenied) setTimeout(listen, 350); else resumeWake();
+}
 let needTap = false;
 function startWake(fromTap) {
   if (!CFG.wake || !SR || micDenied || wakeRec || listening || busy || mode === "speaking" || document.hidden) return;
@@ -464,6 +476,84 @@ async function checkAlerts() {
   save(); renderSheet();
 }
 
+/* ---------- assistente personale: azioni sul telefono ---------- */
+function actionCard(title, what, buttons) {
+  const w = document.createElement("div"); w.className = "msg j act";
+  const n = document.createElement("span"); n.className = "who"; n.textContent = "J.A.R.V.I.S. · AZIONE";
+  const t = document.createElement("div"); t.className = "txt";
+  const b = document.createElement("b"); b.textContent = title; const d = document.createElement("div"); d.className = "what"; d.textContent = what; t.append(b, d);
+  buttons.forEach(x => { const a = document.createElement("a"); a.className = "abtn"; a.textContent = x.label;
+    if (x.href) { a.href = x.href; if (x.download) a.download = x.download; if (/^https?:/.test(x.href)) { a.target = "_blank"; a.rel = "noopener"; } }
+    if (x.onclick) a.onclick = e => { e.preventDefault(); x.onclick(a); };
+    t.appendChild(a); });
+  w.append(n, t); $("log").appendChild(w); scroll();
+}
+const normPhone = p => { let d = String(p || "").replace(/[^\d+]/g, ""); if (d.startsWith("00")) d = "+" + d.slice(2); if (!d.startsWith("+") && /^3\d{8,9}$/.test(d)) d = "+39" + d; if (!d.startsWith("+") && /^0\d{5,10}$/.test(d)) d = "+39" + d; return d; };
+function findContact(q) {
+  const k = String(q || "").toLowerCase().trim(); if (!k) return null;
+  if (/^[\d+\s().-]{6,}$/.test(k)) return { name: q, phone: normPhone(q) };
+  return S.contacts.find(c => c.name.toLowerCase() === k) || S.contacts.find(c => c.name.toLowerCase().includes(k) || k.includes(c.name.toLowerCase())) || null;
+}
+const who = to => { const c = findContact(to); if (!c || (!c.phone && !c.email)) throw new Error(`Non ho il contatto «${to}»: chiedi all'utente il numero e salvalo con save_contact.`); return c; };
+function ics({ title, start, end, location, notes }) {
+  const st = new Date(start); if (isNaN(st)) throw new Error("data di inizio non valida");
+  const en = end ? new Date(end) : new Date(st.getTime() + 3600e3);
+  const f = d => d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+  const e = t => String(t || "").replace(/([,;\\])/g, "\\$1").replace(/\n/g, "\\n");
+  return ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//JARVIS//IT", "BEGIN:VEVENT", "UID:" + Date.now() + "@jarvis", "DTSTAMP:" + f(new Date()), "DTSTART:" + f(st), "DTEND:" + f(en),
+    "SUMMARY:" + e(title), location ? "LOCATION:" + e(location) : "", notes ? "DESCRIPTION:" + e(notes) : "", "BEGIN:VALARM", "TRIGGER:-PT15M", "ACTION:DISPLAY", "DESCRIPTION:" + e(title), "END:VALARM", "END:VEVENT", "END:VCALENDAR"].filter(Boolean).join("\r\n");
+}
+async function webSearch(q) {
+  const call = type => fetch("https://api.openai.com/v1/responses", { method: "POST", headers: { "Authorization": "Bearer " + CFG.key, "Content-Type": "application/json" },
+    body: JSON.stringify({ model: "gpt-4.1-mini", tools: [{ type, user_location: { type: "approximate", country: "IT", timezone: "Europe/Rome" } }],
+      input: "Cerca sul web informazioni aggiornate e rispondi in italiano, sintetico e preciso, con date e nomi delle fonti. Oggi è " + new Date().toLocaleDateString("it-IT") + ". Domanda: " + q }) });
+  let r = await call("web_search"); if (r.status === 400) r = await call("web_search_preview");
+  const j = await r.json(); if (!r.ok) throw new Error(j.error?.message || "ricerca non riuscita");
+  const parts = (j.output || []).filter(o => o.type === "message").flatMap(o => o.content || []).filter(c => c.type === "output_text");
+  const fonti = parts.flatMap(c => (c.annotations || []).filter(a => a.url).map(a => ({ titolo: a.title, url: a.url })));
+  return { risultato: parts.map(c => c.text).join("\n").slice(0, 5000), fonti: [...new Map(fonti.map(f => [f.url, f])).values()].slice(0, 5) };
+}
+const PA_TOOLS = {
+  web_search: { d: "Cerca sul web informazioni aggiornate: notizie, meteo, risultati, orari, prezzi di prodotti, fatti recenti, eventi economici del giorno.", p: { query: { type: "string" } }, r: ["query"],
+    async run({ query }) { $("heard").textContent = "cerco: " + query; const out = await webSearch(query); $("heard").textContent = ""; return out; } },
+  save_contact: { d: "Salva o aggiorna un contatto (nome e numero e/o email).", p: { name: { type: "string" }, phone: { type: "string" }, email: { type: "string" } }, r: ["name"],
+    run({ name, phone, email }) { const old = S.contacts.find(c => c.name.toLowerCase() === String(name).toLowerCase()); const c = old || { name: String(name).trim() };
+      if (phone) c.phone = normPhone(phone); if (email) c.email = String(email).trim(); if (!old) S.contacts.push(c); save(); renderSheet(); return { ok: true, contatto: c }; } },
+  list_contacts: { d: "Elenca i contatti salvati.", p: {}, r: [], run() { return S.contacts; } },
+  send_whatsapp: { d: "Prepara e apre un messaggio WhatsApp per un contatto o numero (l'utente preme Invia in WhatsApp).", p: { to: { type: "string" }, text: { type: "string" } }, r: ["to", "text"],
+    run({ to, text }) { const c = who(to); if (!c.phone) throw new Error("manca il numero di " + c.name); const num = c.phone.replace("+", "");
+      const href = `whatsapp://send?phone=${num}&text=${encodeURIComponent(text)}`;
+      actionCard("WHATSAPP → " + c.name, text, [{ label: "Apri WhatsApp", href }, { label: "Alternativa", href: `https://wa.me/${num}?text=${encodeURIComponent(text)}` }]);
+      pendingOpen = href; return { ok: true, nota: "WhatsApp si apre appena finisci di parlare con il messaggio pronto: l'utente deve solo premere Invia." }; } },
+  send_sms: { d: "Prepara e apre un SMS/iMessage.", p: { to: { type: "string" }, text: { type: "string" } }, r: ["to", "text"],
+    run({ to, text }) { const c = who(to); const href = `sms:${c.phone}${IOS ? "&" : "?"}body=${encodeURIComponent(text)}`;
+      actionCard("MESSAGGIO → " + c.name, text, [{ label: "Apri Messaggi", href }]); pendingOpen = href; return { ok: true, nota: "Messaggi si apre con il testo pronto." }; } },
+  call: { d: "Avvia una telefonata a un contatto o numero.", p: { to: { type: "string" } }, r: ["to"],
+    run({ to }) { const c = who(to); const href = "tel:" + c.phone; actionCard("CHIAMATA", c.name + " · " + c.phone, [{ label: "📞 Chiama", href }]); pendingOpen = href; return { ok: true }; } },
+  send_email: { d: "Prepara un'email nell'app Mail.", p: { to: { type: "string" }, subject: { type: "string" }, body: { type: "string" } }, r: ["to", "subject", "body"],
+    run({ to, subject, body }) { const c = /@/.test(to) ? { name: to, email: to } : who(to); if (!c.email) throw new Error("manca l'email di " + c.name);
+      const href = `mailto:${c.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+      actionCard("EMAIL → " + c.name, subject + "\n\n" + body, [{ label: "Apri Mail", href }]); pendingOpen = href; return { ok: true }; } },
+  directions: { d: "Apre le indicazioni stradali verso un luogo nelle Mappe.", p: { destination: { type: "string" }, mode: { type: "string", enum: ["auto", "piedi", "mezzi"] } }, r: ["destination"],
+    run({ destination, mode }) { const fl = mode === "piedi" ? "w" : mode === "mezzi" ? "r" : "d";
+      const href = IOS ? `https://maps.apple.com/?daddr=${encodeURIComponent(destination)}&dirflg=${fl}` : `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}&travelmode=${mode === "piedi" ? "walking" : mode === "mezzi" ? "transit" : "driving"}`;
+      actionCard("NAVIGAZIONE", destination, [{ label: "🗺 Apri Mappe", href }]); pendingOpen = href; return { ok: true }; } },
+  create_event: { d: "Crea un evento da aggiungere al calendario del telefono (con avviso 15 minuti prima).", p: { title: { type: "string" }, start: { type: "string", description: "AAAA-MM-GGTHH:MM ora locale" }, end: { type: "string" }, location: { type: "string" }, notes: { type: "string" } }, r: ["title", "start"],
+    run(o) { const url = URL.createObjectURL(new Blob([ics(o)], { type: "text/calendar" }));
+      actionCard("CALENDARIO", o.title + " · " + new Date(o.start).toLocaleString("it-IT", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) + (o.location ? " · " + o.location : ""), [{ label: "📅 Aggiungi al calendario", href: url, download: "evento.ics" }]);
+      return { ok: true, nota: "L'utente deve toccare «Aggiungi al calendario» e poi «Aggiungi»." }; } },
+  open_link: { d: "Mostra un link o un sito da aprire.", p: { url: { type: "string" }, label: { type: "string" } }, r: ["url"],
+    run({ url, label }) { if (!/^https?:\/\//.test(url)) url = "https://" + url; actionCard("LINK", label || url, [{ label: "Apri", href: url }]); return { ok: true }; } },
+  copy_text: { d: "Mostra un testo pronto da copiare (es. post, risposta, messaggio per un'app non supportata).", p: { text: { type: "string" } }, r: ["text"],
+    run({ text }) { actionCard("TESTO PRONTO", text, [{ label: "Copia", onclick: a => navigator.clipboard?.writeText(text).then(() => a.textContent = "Copiato ✓") }]); return { ok: true }; } },
+  list_add: { d: "Aggiunge elementi a una lista (spesa, cose da fare, idee…).", p: { list: { type: "string" }, items: { type: "array", items: { type: "string" } } }, r: ["list", "items"],
+    run({ list, items }) { const k = String(list).toLowerCase().trim(); S.lists[k] = [...(S.lists[k] || []), ...(items || []).map(String)]; save(); renderSheet(); return { ok: true, lista: S.lists[k] }; } },
+  list_get: { d: "Legge una lista, o tutte se non indicata.", p: { list: { type: "string" } }, r: [], run({ list }) { return list ? (S.lists[String(list).toLowerCase().trim()] || []) : S.lists; } },
+  list_remove: { d: "Toglie elementi da una lista o la svuota (items vuoto = svuota).", p: { list: { type: "string" }, items: { type: "array", items: { type: "string" } } }, r: ["list"],
+    run({ list, items }) { const k = String(list).toLowerCase().trim(); if (!items || !items.length) delete S.lists[k];
+      else S.lists[k] = (S.lists[k] || []).filter(x => !items.some(i => x.toLowerCase().includes(String(i).toLowerCase()))); save(); renderSheet(); return { ok: true, lista: S.lists[k] || [] }; } },
+};
+
 /* ---------- cervello (OpenAI) ---------- */
 function sessions() {
   const h = new Date().getUTCHours() + new Date().getUTCMinutes() / 60, d = new Date().getUTCDay(), on = [];
@@ -480,7 +570,10 @@ Parli italiano in modo umano: caldo, diretto, con un filo di ironia britannica, 
 Ragiona con cura: capisci cosa vuole davvero l'utente, collega ciò che ricordi di lui, anticipa il passo successivo e proponilo in una riga. Se la richiesta è ambigua fai una sola domanda mirata. Sii preciso e, se non sei sicuro, dillo.
 Sei uno sviluppatore quantitativo esperto in Python per il trading (MetaTrader 5, pandas, backtest, gestione del rischio): codice completo, commentato in italiano, parametri in cima, spread e commissioni realistici; segnala overfitting e limiti; niente consigli finanziari personali; ordini reali sempre provati prima su demo. Se ricevi l'immagine di un grafico descrivi ciò che vedi davvero, senza inventare prezzi.
 Hai dati di mercato veri tramite gli strumenti: get_price (quotazione), analyze_market (candele con EMA 20/50/200, RSI, ATR, MACD, massimi e minimi), backtest_ema (prova storica veloce di un incrocio di medie con stop e target in ATR), position_size (lotti in base al rischio), price_alert (allarme di prezzo), log_trade e trade_stats (diario delle operazioni), set_watchlist (quotazioni in alto). Non inventare MAI prezzi o livelli: prima chiedi i dati con gli strumenti e cita fonte e ora. Quando proponi un'idea operativa dai: direzione, zona di entrata, stop (di solito 1-2 ATR oltre un livello), target, rapporto rischio/rendimento e cosa la invaliderebbe; consiglia di rischiare al massimo l'1-2% del conto; ricorda che è un'analisi, non un consiglio finanziario. Se uno strumento risponde che manca la chiave Twelve Data, spiega in una frase come averla gratis. Simboli: XAUUSD, XAGUSD, EURUSD, GBPUSD, USDJPY, BTCUSD, ETHUSD ecc.
-Non controlli il PC, MetaTrader o le app del telefono e non apri ordini: per eseguire serve il JARVIS sul PC.
+Sei il suo assistente personale anche sul telefono e agisci: con web_search trovi notizie, meteo, orari, risultati, eventi economici del giorno e qualunque informazione recente (usalo sempre quando la risposta dipende da fatti attuali, e cita le fonti in breve); con send_whatsapp, send_sms, send_email e call prepari ed apri messaggi e chiamate (l'app si apre da sola, l'utente preme solo Invia); directions per le indicazioni; create_event per il calendario; list_add/list_get/list_remove per liste come la spesa; save_contact per la rubrica; copy_text per testi da incollare altrove; open_link per i siti.
+Messaggi: se l'utente ti detta testo e destinatario, procedi; se ti chiede di scriverlo tu ("scrivi a Marco che faccio tardi"), componi un testo naturale nel suo stile, in prima persona, e procedi; se manca il numero chiedilo e salvalo. Non inviare mai a destinatari dubbi: in caso di ambiguità chiedi quale contatto.
+"Briefing" significa: saluto, meteo di oggi (cercalo), sessione di mercato e notizie/eventi economici che muovono oro, dollaro e indici (cercali), quotazioni della watchlist, promemoria e allarmi attivi; tutto in poche frasi parlate.
+Se una richiesta non è possibile da qui (aprire ordini su MetaTrader, controllare il PC, leggere i suoi messaggi o le notifiche) dillo in una frase e proponi l'alternativa più vicina.
 Sessioni di mercato adesso (ora italiana ${new Date().toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })}): ${sessions()}.
 Strumenti: remember per salvare, senza chiedere, ciò che di utile l'utente rivela di sé (abitudini, strumenti, strategie, obiettivi, persone) o che ti chiede di ricordare; add_reminder per i promemoria (data e ora locali assolute, formato AAAA-MM-GGTHH:MM); delete_reminder per toglierne uno. I promemoria suonano con questa pagina aperta.${viaVoice ? "\nQuesto messaggio è stato detto a voce: rispondi come in una conversazione parlata, 1-3 frasi naturali, senza elenchi; il codice va comunque nei blocchi." : ""}
 Adesso è ${when}.
@@ -516,6 +609,7 @@ const TOOLS = {
   delete_reminder: { d: "Elimina un promemoria tramite id.", p: { id: { type: "string" } }, r: ["id"],
     run({ id }) { const n = S.reminders.length; S.reminders = S.reminders.filter(r => r.id !== id); save(); renderSheet(); return { ok: S.reminders.length < n }; } },
 };
+Object.assign(TOOLS, PA_TOOLS);
 const toolSpec = Object.entries(TOOLS).map(([name, t]) => ({ type: "function", function: { name, description: t.d, parameters: { type: "object", properties: t.p, required: t.r } } }));
 const modelFor = (t, img) => CFG.model !== "auto" ? CFG.model : (img || /codice|python|strategi|backtest|script|indicator|ottimizz|analizz|confront|piano|perch[eé]|dettagli|entrat|setup|trade|operazion|lott|rischio|livell|supporti|resistenz/i.test(t)) ? "gpt-4.1" : "gpt-4.1-mini";
 async function callOpenAI(messages, model) {
@@ -587,6 +681,9 @@ function renderSheet() {
   mk($("trList"), S.trades.slice(-10).reverse().map(t => ({ ...t, text: `${t.symbol} ${t.side === "sell" ? "VENDITA" : "ACQUISTO"} ${t.pnl >= 0 ? "+" : ""}${t.pnl}${t.note ? " · " + t.note : ""}` })), "Nessuna operazione. Dimmi «registra un buy su oro chiuso a +80».",
     t => new Date(t.ts).toLocaleString("it-IT", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) + (t.entry ? ` · ${t.entry} → ${t.exit ?? "?"}` : ""), t => { S.trades = S.trades.filter(x => x.id !== t.id); save(); renderSheet(); });
   mk($("alList"), S.alerts.map(a => ({ ...a, text: `${a.symbol} ${a.op} ${a.level}` })), "Nessun allarme. Prova: «avvisami se l'oro va sopra 4200».", a => a.note || "controllo ogni minuto", a => { S.alerts = S.alerts.filter(x => x.id !== a.id); save(); renderSheet(); });
+  $("ctN").textContent = S.contacts.length; $("lsN").textContent = Object.keys(S.lists).length;
+  mk($("ctList"), S.contacts.map(c => ({ ...c, text: c.name })), "Nessun contatto. Dimmi «salva Marco 333 1234567».", c => [c.phone, c.email].filter(Boolean).join(" · "), c => { S.contacts = S.contacts.filter(x => x.name !== c.name); save(); renderSheet(); });
+  mk($("lsList"), Object.entries(S.lists).map(([k, v]) => ({ k, text: k[0].toUpperCase() + k.slice(1) })), "Nessuna lista. Prova: «aggiungi latte e pane alla spesa».", x => S.lists[x.k].join(", ") || "vuota", x => { delete S.lists[x.k]; save(); renderSheet(); });
   mk($("memList"), S.memories, "Ancora niente. Dimmi «ricorda che…».", m => new Date(m.ts).toLocaleDateString("it-IT"), (m, i) => { S.memories.splice(i, 1); save(); renderSheet(); });
 }
 function openSheet() { $("tdIn").value = CFG.td; $("keyIn").value = CFG.key; $("modelIn").value = CFG.model; $("ttsIn").value = CFG.tts; $("keyNote").textContent = CFG.key ? "Chiave salvata su questo telefono." : "Incolla la tua chiave e premi Salva."; renderSheet(); $("drawer").hidden = false; }
@@ -622,7 +719,7 @@ function autosize() { const t = $("msg"); t.style.height = "auto"; t.style.heigh
 $("msg").addEventListener("input", autosize);
 $("msg").addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey && matchMedia("(pointer:fine)").matches) { e.preventDefault(); ask(); } });
 $("bar").addEventListener("submit", e => { e.preventDefault(); ask(); });
-document.querySelectorAll(".chip").forEach(c => c.onclick = () => ask(c.textContent));
+document.querySelectorAll(".chip").forEach(c => c.onclick = () => { const t = c.textContent; if (t.endsWith("…")) { $("msg").value = t.slice(0, -1); autosize(); $("msg").focus(); } else ask(t); });
 $("photoBtn").onclick = () => $("photo").click();
 $("photo").onchange = () => { const f = $("photo").files[0]; if (!f) return; pendingImage = f; $("photoBtn").textContent = "✓"; $("msg").placeholder = "Cosa vuoi sapere di questo grafico?"; $("photo").value = ""; };
 $("voiceBtn").onclick = () => { CFG.voice = !CFG.voice; LS.set("voice", CFG.voice); $("voiceBtn").setAttribute("aria-pressed", String(CFG.voice)); $("voiceBtn").textContent = CFG.voice ? "🔊" : "🔇"; if (!CFG.voice) stopSpeaking(); };
