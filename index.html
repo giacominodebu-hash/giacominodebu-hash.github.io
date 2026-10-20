@@ -135,6 +135,9 @@ pre{position:relative;font-family:var(--f-mono);font-size:12px;line-height:1.5;b
     </select>
     <div class="row"><button class="btn" id="saveKey" type="button">Salva</button><button class="btn" id="testKey" type="button">Prova la chiave</button></div>
     <p class="note" id="keyNote"></p>
+    <h2>PROVA VOCE</h2>
+    <div class="row" style="margin-top:0"><button class="btn" id="t1" type="button">1 · Voce telefono</button><button class="btn" id="t2" type="button">2 · Voce JARVIS</button><button class="btn" id="t3" type="button">3 · Lettore audio</button></div>
+    <p class="note" id="tNote">Tocca i tre pulsanti uno alla volta e dimmi quali senti.</p>
     <h2>PROMEMORIA <span id="remN">0</span></h2><ul id="remList"></ul>
     <h2>COSA RICORDO DI TE <span id="memN">0</span></h2><ul id="memList"></ul>
     <h2>CONVERSAZIONE</h2>
@@ -424,6 +427,17 @@ function checkReminders() {
   due.forEach(r => { toast("PROMEMORIA", r.text, 12000); const m = "Signore, le ricordo: " + r.text; addMsg("j", m); if (!busy) speak(m);
     try { navigator.vibrate && navigator.vibrate([200, 100, 200]); } catch {} });
 }
+
+/* ---------- prova voce ---------- */
+const tlog = m => { $("tNote").textContent = m; };
+$("t1").onclick = () => { try { speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance("Prova uno. Voce del telefono."); u.lang = "it-IT";
+  u.onend = () => tlog("1: finito (l'hai sentita?)"); u.onerror = e => tlog("1: errore " + e.error); speechSynthesis.speak(u); tlog("1: parlo… voci italiane: " + speechSynthesis.getVoices().filter(v => /^it/i.test(v.lang)).length); } catch (e) { tlog("1: " + e.message); } };
+async function ttsBuf(t) { const r = await fetch("https://api.openai.com/v1/audio/speech", { method: "POST", headers: { "Authorization": "Bearer " + CFG.key, "Content-Type": "application/json" },
+  body: JSON.stringify({ model: "gpt-4o-mini-tts", voice: "onyx", input: t, response_format: "mp3" }) }); if (!r.ok) throw new Error("OpenAI " + r.status); return r.arrayBuffer(); }
+$("t2").onclick = async () => { unlockAudio(true); tlog("2: scarico la voce…"); try { const b = await ttsBuf("Prova due. Voce di Jarvis.");
+  tlog("2: audio scaricato, contesto " + (actx ? actx.state : "assente")); const ok = await playWebAudio(b); tlog(ok ? "2: suono avviato (l'hai sentita?)" : "2: canale audio bloccato (" + (actx ? actx.state : "assente") + ")"); } catch (e) { tlog("2: errore " + (e.message || e)); } };
+$("t3").onclick = async () => { tlog("3: scarico…"); try { const b = await ttsBuf("Prova tre. Lettore audio."); player.src = URL.createObjectURL(new Blob([b], { type: "audio/mpeg" }));
+  player.onended = () => tlog("3: finito (l'hai sentita?)"); await player.play(); tlog("3: suono avviato"); } catch (e) { tlog("3: errore " + (e.name || "") + " " + (e.message || e)); } };
 
 /* ---------- composer ---------- */
 function autosize() { const t = $("msg"); t.style.height = "auto"; t.style.height = Math.min(t.scrollHeight, 120) + "px"; }
