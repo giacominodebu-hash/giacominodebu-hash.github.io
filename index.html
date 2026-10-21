@@ -647,10 +647,36 @@ const TOOLS = {
 Object.assign(TOOLS, PA_TOOLS);
 const toolSpec = Object.entries(TOOLS).map(([name, t]) => ({ type: "function", function: { name, description: t.d, parameters: { type: "object", properties: t.p, required: t.r } } }));
 const modelFor = () => "gratis";
+const GSIG = {};   // firme di Gemini 3 per le chiamate agli strumenti
+const gemSchema = o => { if (!o || typeof o !== "object") return o; const r = {}; for (const [k, v] of Object.entries(o)) { if (k === "additionalProperties") continue; r[k] = (v && typeof v === "object" && !Array.isArray(v)) ? (k === "properties" ? Object.fromEntries(Object.entries(v).map(([a, b]) => [a, gemSchema(b)])) : gemSchema(v)) : v; } return r; };
+async function geminiChat(messages) {   // API nativa di Google: funziona con le chiavi AIza... e con quelle nuove AQ....
+  const sys = [], contents = [], names = {};
+  const add = (role, parts) => { const l = contents[contents.length - 1]; if (l && l.role === role) l.parts.push(...parts); else contents.push({ role, parts }); };
+  for (const m of messages) {
+    if (m.role === "system") { sys.push(m.content); continue; }
+    if (m.role === "assistant") { const parts = m.content ? [{ text: m.content }] : [];
+      for (const tc of m.tool_calls || []) { let a = {}; try { a = JSON.parse(tc.function.arguments || "{}"); } catch {} names[tc.id] = tc.function.name;
+        const p = { functionCall: { name: tc.function.name, args: a } }; if (GSIG[tc.id]) p.thoughtSignature = GSIG[tc.id]; parts.push(p); }
+      if (parts.length) add("model", parts); continue; }
+    if (m.role === "tool") { let r; try { r = JSON.parse(m.content); } catch { r = { risultato: m.content }; } if (!r || typeof r !== "object" || Array.isArray(r)) r = { risultato: r };
+      add("user", [{ functionResponse: { name: names[m.tool_call_id] || "strumento", response: r } }]); continue; }
+    if (Array.isArray(m.content)) add("user", m.content.map(x => x.type === "image_url" ? { inlineData: { mimeType: x.image_url.url.slice(5, x.image_url.url.indexOf(";")), data: x.image_url.url.split(",")[1] } } : { text: x.text || "" }));
+    else add("user", [{ text: String(m.content || "…") }]);
+  }
+  while (contents.length && contents[0].role !== "user") contents.shift();
+  const body = { contents, systemInstruction: { parts: [{ text: sys.join("\n") }] }, generationConfig: { temperature: .6, maxOutputTokens: 3000 },
+    tools: [{ functionDeclarations: toolSpec.map(t => { const d = { name: t.function.name, description: t.function.description }; const ps = gemSchema(t.function.parameters); if (ps && Object.keys(ps.properties || {}).length) d.parameters = ps; return d; }) }] };
+  const j = await gemFetch("models/" + await gemModel() + ":generateContent", body);
+  const parts = ((j.candidates || [])[0] || {}).content?.parts || [];
+  const text = parts.filter(p => p.text && !p.thought).map(p => p.text).join("");
+  const calls = parts.filter(p => p.functionCall).map(p => { const id = "g" + Math.random().toString(36).slice(2, 10); if (p.thoughtSignature) GSIG[id] = p.thoughtSignature;
+    return { id, type: "function", function: { name: p.functionCall.name, arguments: JSON.stringify(p.functionCall.args || {}) } }; });
+  return calls.length ? { role: "assistant", content: text || null, tool_calls: calls } : { role: "assistant", content: text };
+}
 async function callOpenAI(messages) {   // nome storico: ora prova Gemini e poi Groq, tutti e due GRATIS
   let ultimo = null;
   if (CFG.key) {
-    try { const j = await gemFetch("openai/chat/completions", { model: await gemModel(), messages, tools: toolSpec, temperature: .6 }); return j.choices[0].message; }
+    try { return await geminiChat(messages); }
     catch (e) { ultimo = e; }
   }
   if (CFG.qkey) {
@@ -910,7 +936,7 @@ $("drawer").onclick = e => { if (e.target === $("drawer")) $("drawer").hidden = 
 $("saveKey").onclick = () => { const nc = $("pcIn").value.trim(); if (nc !== PC.code) { PC.code = nc; LS.set("pccode", nc); PC.since = "2m"; PC.seen.clear(); if (PC.es) { PC.es.close(); PC.es = null; } if (PC.on) pcPing(); } CFG.td = $("tdIn").value.trim(); LS.set("td", CFG.td); refreshTicker(); CFG.key = $("keyIn").value.trim(); CFG.qkey = $("qkeyIn").value.trim(); CFG.model = "auto"; CFG.tts = "browser"; CFG.gmodel = ""; LS.set("gmodel", "");
   LS.set("gkey", CFG.key); LS.set("qkey", CFG.qkey); LS.set("model", CFG.model); LS.set("tts", CFG.tts); $("keyNote").textContent = "Salvato."; };
 $("testKey").onclick = async () => { $("saveKey").click(); $("keyNote").textContent = "Provo…";
-  try { const m = await gemModel(); await gemFetch("openai/chat/completions", { model: m, messages: [{ role: "user", content: "ok" }], max_tokens: 5 });
+  try { const m = await gemModel(); await gemFetch("models/" + m + ":generateContent", { contents: [{ role: "user", parts: [{ text: "ok" }] }], generationConfig: { maxOutputTokens: 5 } });
     $("keyNote").textContent = "Chiave Gemini funzionante (" + m + ", gratis). Pronto, signore."; }
   catch (e) { $("keyNote").textContent = "Gemini: " + (e.status === 429 ? "limite gratuito raggiunto per ora." : (e.message || "errore")); } };
 $("resetBtn").onclick = () => { S.chat = []; save(); $("log").replaceChildren(); $("drawer").hidden = true; addMsg("j", "Conversazione azzerata. Da dove ripartiamo, signore?"); };
