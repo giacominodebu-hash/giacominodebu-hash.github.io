@@ -669,7 +669,10 @@ async function ask(text) {
   text = (text ?? $("msg").value).trim();
   if ((!text && !pendingImage) || busy) return;
   if (PC.on && !pendingImage) return askPC(text);
-  if (!CFG.key && !CFG.qkey) { addMsg("s", "Manca la chiave gratis di Gemini: apri ☰ e incollala in Impostazioni, oppure collega il PC che te la passa da solo."); openSheet(); return; }
+  const pcRiserva = () => cleanCode(PC.code).length >= 20;
+  if (!CFG.key && !CFG.qkey) {
+    if (pcRiserva() && !pendingImage) { addMsg("s", "Non ho chiavi gratis sul telefono: passo la richiesta al PC."); await pcSetup(); if (!PC.es) pcConnect(); return askPC(text); }
+    addMsg("s", "Manca la chiave gratis di Gemini: apri ☰ e incollala in Impostazioni, oppure collega il PC che te la passa da solo."); openSheet(); return; }
   stopWake(); stopSpeaking();
   const img = pendingImage; pendingImage = null; $("photoBtn").textContent = "📷";
   if (!text) text = "Analizza questo grafico.";
@@ -703,6 +706,11 @@ async function ask(text) {
     setState(null); busy = false; speak(answer);
   } catch (e) {
     typing.remove(); setState(null); S.chat.pop(); convo = false;
+    if (navigator.onLine && !img && cleanCode(PC.code).length >= 20) {   // RISERVA: i servizi gratis non rispondono, ci pensa il PC (lui ha anche Claude)
+      addMsg("s", "I servizi gratis del telefono non rispondono: passo la richiesta al PC.");
+      busy = false; viaVoice = false; $("send").disabled = false;
+      try { await pcSetup(); if (!PC.es) pcConnect(); S.chat.push({ role: "user", content: text + " [al PC]" }); return await pcRequest({ k: "msg", text, voice: false }, null); } catch {}
+    }
     const st = e.status;
     addMsg("s", (st === 401 || st === 403) ? "La chiave gratis (Gemini/Groq) non è valida: controllala in ☰ Impostazioni." : st === 429 ? "Hai raggiunto il limite gratuito di oggi: riprova più tardi oppure collega il PC (le cose difficili le fa lui)."
       : !navigator.onLine ? "Il telefono è offline: mi serve internet per pensare." : "Non sono riuscito a rispondere: " + (e.message || "errore sconosciuto"));
