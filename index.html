@@ -136,17 +136,17 @@ pre{position:relative;font-family:var(--f-mono);font-size:12px;line-height:1.5;b
 <div class="drawer" id="drawer" hidden>
   <div class="sheet" role="dialog" aria-label="Memoria e impostazioni">
     <h2>IMPOSTAZIONI</h2>
-    <label for="keyIn">Chiave OpenAI (resta salvata solo su questo telefono)</label>
-    <input id="keyIn" type="password" placeholder="sk-..." autocomplete="off">
+    <label for="keyIn">Chiave Claude / Anthropic (resta salvata solo su questo telefono; se il PC è collegato la prende da lui)</label>
+    <input id="keyIn" type="password" placeholder="sk-ant-..." autocomplete="off">
     <label for="modelIn">Cervello</label>
     <select id="modelIn">
-      <option value="auto">Automatico (veloce per parlare, potente per codice)</option>
-      <option value="gpt-4.1-mini">Sempre veloce (gpt-4.1-mini)</option>
-      <option value="gpt-4.1">Sempre potente (gpt-4.1)</option>
+      <option value="auto">Automatico (Haiku per parlare, Opus per codice e analisi)</option>
+      <option value="claude-haiku-5-5">Sempre veloce (Claude Haiku 5.5)</option>
+      <option value="claude-sonnet-5-5">Equilibrato (Claude Sonnet 5.5)</option>
+      <option value="claude-opus-5-5">Sempre il più potente (Claude Opus 5.5)</option>
     </select>
     <label for="ttsIn">Voce</label>
     <select id="ttsIn">
-      <option value="openai">Voce JARVIS (OpenAI, più naturale)</option>
       <option value="browser">Voce del telefono (gratis)</option>
     </select>
     <label for="pcIn">Codice del PC (lo trovi sul PC: tasto 📱 di JARVIS)</label>
@@ -156,8 +156,8 @@ pre{position:relative;font-family:var(--f-mono);font-size:12px;line-height:1.5;b
     <div class="row"><button class="btn" id="saveKey" type="button">Salva</button><button class="btn" id="testKey" type="button">Prova la chiave</button></div>
     <p class="note" id="keyNote"></p>
     <h2>PROVA VOCE</h2>
-    <div class="row" style="margin-top:0"><button class="btn" id="t1" type="button">1 · Voce telefono</button><button class="btn" id="t2" type="button">2 · Voce JARVIS</button><button class="btn" id="t3" type="button">3 · Lettore audio</button></div>
-    <p class="note" id="tNote">Tocca i tre pulsanti uno alla volta e dimmi quali senti.</p>
+    <div class="row" style="margin-top:0"><button class="btn" id="t1" type="button">1 · Voce telefono</button></div>
+    <p class="note" id="tNote">Tocca il pulsante per provare la voce.</p>
     <h2>DIARIO DI TRADING <span id="trN">0</span></h2><div class="stats" id="trStats"></div><ul id="trList"></ul>
     <h2>ALLARMI DI PREZZO <span id="alN">0</span></h2><ul id="alList"></ul>
     <h2>CONTATTI <span id="ctN">0</span></h2>
@@ -181,7 +181,8 @@ const $ = id => document.getElementById(id);
 const LS = { get(k, d) { try { const v = localStorage.getItem("jv_" + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
              set(k, v) { try { localStorage.setItem("jv_" + k, JSON.stringify(v)); } catch {} } };
 const S = { memories: LS.get("memories", []), reminders: LS.get("reminders", []), chat: LS.get("chat", []), trades: LS.get("trades", []), alerts: LS.get("alerts", []), watch: LS.get("watch", ["XAUUSD", "BTCUSD", "EURUSD"]), contacts: LS.get("contacts", []), lists: LS.get("lists", {}) };
-const CFG = { key: LS.get("key", ""), model: LS.get("model", "auto"), tts: LS.get("tts", "openai"), voice: LS.get("voice", true), wake: LS.get("wake", true), td: LS.get("td", "") };
+if (!LS.get("claude_v1", false)) { LS.set("model", "auto"); LS.set("tts", "browser"); LS.set("claude_v1", true); }   // passaggio a Claude: niente più GPT
+const CFG = { key: LS.get("ckey", ""), model: LS.get("model", "auto"), tts: "browser", voice: LS.get("voice", true), wake: LS.get("wake", true), td: LS.get("td", "") };
 if (!LS.get("wake_v2", false)) { CFG.wake = true; LS.set("wake", true); LS.set("wake_v2", true); }   // ascolto continuo acceso per tutti
 const save = () => { S.chat = S.chat.slice(-40); LS.set("memories", S.memories); LS.set("reminders", S.reminders); LS.set("chat", S.chat); LS.set("trades", S.trades); LS.set("alerts", S.alerts); LS.set("watch", S.watch); LS.set("contacts", S.contacts); LS.set("lists", S.lists); LS.set("updated", Date.now()); S._dirty = true; };
 let busy = false, pendingImage = null, viaVoice = false;
@@ -276,7 +277,7 @@ async function speak(text) {
 }
 async function speakNow(say, fromTap) {
   let buf = null;
-  if (CFG.tts === "openai" && CFG.key) { try { buf = await ttsAudio(say); } catch {} }
+  // voce: quella del telefono (Claude non fa audio e GPT non si usa più)
   if (buf) {
     try { await playElement(buf); return; } catch {}
     try { if (await playWebAudio(buf)) return; } catch {}
@@ -528,15 +529,21 @@ function ics({ title, start, end, location, notes }) {
   return ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//JARVIS//IT", "BEGIN:VEVENT", "UID:" + Date.now() + "@jarvis", "DTSTAMP:" + f(new Date()), "DTSTART:" + f(st), "DTEND:" + f(en),
     "SUMMARY:" + e(title), location ? "LOCATION:" + e(location) : "", notes ? "DESCRIPTION:" + e(notes) : "", "BEGIN:VALARM", "TRIGGER:-PT15M", "ACTION:DISPLAY", "DESCRIPTION:" + e(title), "END:VALARM", "END:VEVENT", "END:VCALENDAR"].filter(Boolean).join("\r\n");
 }
+const ANTH = "https://api.anthropic.com/v1/";
+const anthHeaders = () => ({ "x-api-key": CFG.key, "anthropic-version": "2023-06-01", "content-type": "application/json", "anthropic-dangerous-direct-browser-access": "true" });
+async function anthPost(body) {
+  const r = await fetch(ANTH + "messages", { method: "POST", headers: anthHeaders(), body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { const e = new Error(j.error?.message || ("HTTP " + r.status)); e.status = r.status; throw e; }
+  return j;
+}
 async function webSearch(q) {
-  const call = type => fetch("https://api.openai.com/v1/responses", { method: "POST", headers: { "Authorization": "Bearer " + CFG.key, "Content-Type": "application/json" },
-    body: JSON.stringify({ model: "gpt-4.1-mini", tools: [{ type, user_location: { type: "approximate", country: "IT", timezone: "Europe/Rome" } }],
-      input: "Cerca sul web informazioni aggiornate e rispondi in italiano, sintetico e preciso, con date e nomi delle fonti. Oggi è " + new Date().toLocaleDateString("it-IT") + ". Domanda: " + q }) });
-  let r = await call("web_search"); if (r.status === 400) r = await call("web_search_preview");
-  const j = await r.json(); if (!r.ok) throw new Error(j.error?.message || "ricerca non riuscita");
-  const parts = (j.output || []).filter(o => o.type === "message").flatMap(o => o.content || []).filter(c => c.type === "output_text");
-  const fonti = parts.flatMap(c => (c.annotations || []).filter(a => a.url).map(a => ({ titolo: a.title, url: a.url })));
-  return { risultato: parts.map(c => c.text).join("\n").slice(0, 5000), fonti: [...new Map(fonti.map(f => [f.url, f])).values()].slice(0, 5) };
+  const j = await anthPost({ model: "claude-haiku-5-5", max_tokens: 1500,
+    tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 3, user_location: { type: "approximate", country: "IT", timezone: "Europe/Rome" } }],
+    messages: [{ role: "user", content: "Cerca sul web informazioni aggiornate e rispondi in italiano, sintetico e preciso, con date e nomi delle fonti. Oggi è " + new Date().toLocaleDateString("it-IT") + ". Domanda: " + q }] });
+  const parts = (j.content || []).filter(c => c.type === "text");
+  const fonti = parts.flatMap(c => (c.citations || []).filter(a => a.url).map(a => ({ titolo: a.title, url: a.url })));
+  return { risultato: parts.map(c => c.text).join("").slice(0, 5000), fonti: [...new Map(fonti.map(f => [f.url, f])).values()].slice(0, 5) };
 }
 const PA_TOOLS = {
   web_search: { d: "Cerca sul web informazioni aggiornate: notizie, meteo, risultati, orari, prezzi di prodotti, fatti recenti, eventi economici del giorno.", p: { query: { type: "string" } }, r: ["query"],
@@ -579,7 +586,7 @@ const PA_TOOLS = {
       else S.lists[k] = (S.lists[k] || []).filter(x => !items.some(i => x.toLowerCase().includes(String(i).toLowerCase()))); save(); renderSheet(); return { ok: true, lista: S.lists[k] || [] }; } },
 };
 
-/* ---------- cervello (OpenAI) ---------- */
+/* ---------- cervello (Claude di Anthropic) ---------- */
 function sessions() {
   const h = new Date().getUTCHours() + new Date().getUTCMinutes() / 60, d = new Date().getUTCDay(), on = [];
   if (d === 6 || (d === 0 && h < 21) || (d === 5 && h >= 21)) return "fine settimana, forex e oro chiusi (le cripto sono aperte)";
@@ -635,15 +642,33 @@ const TOOLS = {
     run({ id }) { const n = S.reminders.length; S.reminders = S.reminders.filter(r => r.id !== id); save(); renderSheet(); return { ok: S.reminders.length < n }; } },
 };
 Object.assign(TOOLS, PA_TOOLS);
-const toolSpec = Object.entries(TOOLS).map(([name, t]) => ({ type: "function", function: { name, description: t.d, parameters: { type: "object", properties: t.p, required: t.r } } }));
-const modelFor = (t, img) => CFG.model !== "auto" ? CFG.model : (img || /codice|python|strategi|backtest|script|indicator|ottimizz|analizz|confront|piano|perch[eé]|dettagli|entrat|setup|trade|operazion|lott|rischio|livell|supporti|resistenz/i.test(t)) ? "gpt-4.1" : "gpt-4.1-mini";
-async function callOpenAI(messages, model) {
-  const r = await fetch("https://api.openai.com/v1/chat/completions", { method: "POST",
-    headers: { "Authorization": "Bearer " + CFG.key, "Content-Type": "application/json" },
-    body: JSON.stringify({ model, messages, tools: toolSpec, temperature: .6 }) });
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok) { const e = new Error(j.error?.message || ("HTTP " + r.status)); e.status = r.status; throw e; }
-  return j.choices[0].message;
+const toolSpec = Object.entries(TOOLS).map(([name, t]) => ({ name, description: t.d, input_schema: { type: "object", properties: t.p, required: t.r } }));
+const modelFor = (t, img) => CFG.model !== "auto" ? CFG.model : (img || /codice|python|strategi|backtest|script|indicator|ottimizz|analizz|confront|piano|perch[eé]|dettagli|entrat|setup|trade|operazion|lott|rischio|livell|supporti|resistenz/i.test(t)) ? "claude-opus-5-5" : "claude-haiku-5-5";
+// la conversazione resta nel formato di prima (system/user/assistant/tool): qui la traduco per Claude e traduco la risposta
+function toClaude(messages) {
+  const out = []; let system = "";
+  const push = (role, blocks) => { const last = out[out.length - 1]; if (last && last.role === role) last.content.push(...blocks); else out.push({ role, content: blocks }); };
+  for (const m of messages) {
+    if (m.role === "system") { system += m.content + "\n"; continue; }
+    if (m.role === "tool") { push("user", [{ type: "tool_result", tool_use_id: m.tool_call_id, content: String(m.content || "") }]); continue; }
+    if (m.role === "assistant") {
+      const b = []; if (m.content) b.push({ type: "text", text: m.content });
+      for (const tc of m.tool_calls || []) { let a = {}; try { a = JSON.parse(tc.function.arguments || "{}"); } catch {} b.push({ type: "tool_use", id: tc.id, name: tc.function.name, input: a }); }
+      if (b.length) push("assistant", b); continue;
+    }
+    const c = m.content;
+    if (typeof c === "string") { push("user", [{ type: "text", text: c || "…" }]); continue; }
+    push("user", (c || []).map(x => x.type === "image_url" ? (u => ({ type: "image", source: { type: "base64", media_type: u.slice(5, u.indexOf(";")), data: u.split(",")[1] } }))(x.image_url.url) : { type: "text", text: x.text || "" }));
+  }
+  while (out.length && out[0].role !== "user") out.shift();   // Claude vuole che si cominci con l'utente
+  return { system, messages: out };
+}
+async function callOpenAI(messages, model) {   // nome storico: ora chiama Claude
+  const { system, messages: msgs } = toClaude(messages);
+  const j = await anthPost({ model, max_tokens: 4000, system, messages: msgs, tools: toolSpec });
+  const text = (j.content || []).filter(b => b.type === "text").map(b => b.text).join("").trim();
+  const calls = (j.content || []).filter(b => b.type === "tool_use").map(b => ({ id: b.id, type: "function", function: { name: b.name, arguments: JSON.stringify(b.input || {}) } }));
+  return calls.length ? { role: "assistant", content: text || null, tool_calls: calls } : { role: "assistant", content: text };
 }
 const fileToDataURL = f => new Promise((ok, ko) => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.onerror = ko; fr.readAsDataURL(f); });
 
@@ -651,7 +676,7 @@ async function ask(text) {
   text = (text ?? $("msg").value).trim();
   if ((!text && !pendingImage) || busy) return;
   if (PC.on && !pendingImage) return askPC(text);
-  if (!CFG.key) { addMsg("s", "Manca la chiave OpenAI: apri ☰ e incollala in Impostazioni."); openSheet(); return; }
+  if (!CFG.key) { addMsg("s", "Manca la chiave Claude: apri ☰ e incollala in Impostazioni (oppure collega il PC, che te la passa)."); openSheet(); return; }
   stopWake(); stopSpeaking();
   const img = pendingImage; pendingImage = null; $("photoBtn").textContent = "📷";
   if (!text) text = "Analizza questo grafico.";
@@ -686,7 +711,7 @@ async function ask(text) {
   } catch (e) {
     typing.remove(); setState(null); S.chat.pop(); convo = false;
     const st = e.status;
-    addMsg("s", st === 401 ? "La chiave OpenAI non è valida: controllala in ☰ Impostazioni." : st === 429 ? "OpenAI dice che hai finito il credito o troppe richieste: controlla il saldo su platform.openai.com."
+    addMsg("s", st === 401 ? "La chiave Claude non è valida: controllala in ☰ Impostazioni." : st === 429 ? "Claude dice troppe richieste: riprova tra poco." : (st === 400 && /credit/i.test(e.message || "")) ? "Il credito Claude è finito: ricaricalo su console.anthropic.com." : st === 529 ? "I server di Claude sono sovraccarichi: riprova tra un minuto."
       : !navigator.onLine ? "Il telefono è offline: mi serve internet per pensare." : "Non sono riuscito a rispondere: " + (e.message || "errore sconosciuto"));
     resumeWake();
   } finally { busy = false; viaVoice = false; $("send").disabled = false; scroll(); }
@@ -799,7 +824,7 @@ async function pcSyncGet() {
   try { if (!(await pcSetup())) return false; if (!PC.es) pcConnect();
     const id = rid(), p = pcWait(id, 20000, 20000); await pcSend({ k: "sync_get", id }); const m = await p;
     let restored = [];
-    if (m.key && !CFG.key) { CFG.key = m.key; LS.set("key", m.key); restored.push("chiave OpenAI"); }
+    if (m.ckey && !CFG.key) { CFG.key = m.ckey; LS.set("ckey", m.ckey); restored.push("chiave Claude"); }
     const st = m.state;
     if (st && (st.updated || 0) > LS.get("updated", 0)) {
       SYNC_KEYS.forEach(k => { if (st[k] != null) S[k] = st[k]; }); if (st.td && !CFG.td) { CFG.td = st.td; LS.set("td", st.td); }
@@ -879,12 +904,12 @@ function renderSheet() {
 function openSheet() { $("pcIn").value = PC.code; $("tdIn").value = CFG.td; $("keyIn").value = CFG.key; $("modelIn").value = CFG.model; $("ttsIn").value = CFG.tts; $("keyNote").textContent = CFG.key ? "Chiave salvata su questo telefono." : "Incolla la tua chiave e premi Salva."; renderSheet(); $("drawer").hidden = false; }
 $("memBtn").onclick = openSheet;
 $("drawer").onclick = e => { if (e.target === $("drawer")) $("drawer").hidden = true; };
-$("saveKey").onclick = () => { const nc = $("pcIn").value.trim(); if (nc !== PC.code) { PC.code = nc; LS.set("pccode", nc); PC.since = "2m"; PC.seen.clear(); if (PC.es) { PC.es.close(); PC.es = null; } if (PC.on) pcPing(); } CFG.td = $("tdIn").value.trim(); LS.set("td", CFG.td); refreshTicker(); CFG.key = $("keyIn").value.trim(); CFG.model = $("modelIn").value; CFG.tts = $("ttsIn").value;
-  LS.set("key", CFG.key); LS.set("model", CFG.model); LS.set("tts", CFG.tts); $("keyNote").textContent = "Salvato."; };
+$("saveKey").onclick = () => { const nc = $("pcIn").value.trim(); if (nc !== PC.code) { PC.code = nc; LS.set("pccode", nc); PC.since = "2m"; PC.seen.clear(); if (PC.es) { PC.es.close(); PC.es = null; } if (PC.on) pcPing(); } CFG.td = $("tdIn").value.trim(); LS.set("td", CFG.td); refreshTicker(); CFG.key = $("keyIn").value.trim(); CFG.model = $("modelIn").value; CFG.tts = "browser";
+  LS.set("ckey", CFG.key); LS.set("model", CFG.model); LS.set("tts", CFG.tts); $("keyNote").textContent = "Salvato."; };
 $("testKey").onclick = async () => { $("saveKey").click(); $("keyNote").textContent = "Provo…";
-  try { const r = await fetch("https://api.openai.com/v1/models/gpt-4.1-mini", { headers: { "Authorization": "Bearer " + CFG.key } });
-    $("keyNote").textContent = r.ok ? "Chiave funzionante. Pronto, signore." : r.status === 401 ? "Chiave non valida." : "Risposta OpenAI: " + r.status; }
-  catch { $("keyNote").textContent = "Nessuna connessione a OpenAI."; } };
+  try { const r = await fetch(ANTH + "models/claude-haiku-5-5", { headers: anthHeaders() });
+    $("keyNote").textContent = r.ok ? "Chiave Claude funzionante. Pronto, signore." : r.status === 401 ? "Chiave non valida." : "Risposta di Claude: " + r.status; }
+  catch { $("keyNote").textContent = "Nessuna connessione a Claude."; } };
 $("resetBtn").onclick = () => { S.chat = []; save(); $("log").replaceChildren(); $("drawer").hidden = true; addMsg("j", "Conversazione azzerata. Da dove ripartiamo, signore?"); };
 function checkReminders() {
   const now = Date.now(), due = S.reminders.filter(r => r.due <= now); if (!due.length) return;
@@ -897,11 +922,10 @@ function checkReminders() {
 const tlog = m => { $("tNote").textContent = m; };
 $("t1").onclick = () => { try { speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance("Prova uno. Voce del telefono."); u.lang = "it-IT";
   u.onend = () => tlog("1: finito (l'hai sentita?)"); u.onerror = e => tlog("1: errore " + e.error); speechSynthesis.speak(u); tlog("1: parlo… voci italiane: " + speechSynthesis.getVoices().filter(v => /^it/i.test(v.lang)).length); } catch (e) { tlog("1: " + e.message); } };
-async function ttsBuf(t) { const r = await fetch("https://api.openai.com/v1/audio/speech", { method: "POST", headers: { "Authorization": "Bearer " + CFG.key, "Content-Type": "application/json" },
-  body: JSON.stringify({ model: "gpt-4o-mini-tts", voice: "onyx", input: t, response_format: "mp3" }) }); if (!r.ok) throw new Error("OpenAI " + r.status); return r.arrayBuffer(); }
-$("t2").onclick = async () => { unlockAudio(true); tlog("2: scarico la voce…"); try { const b = await ttsBuf("Prova due. Voce di Jarvis.");
+async function ttsBuf() { throw new Error("voce OpenAI disattivata"); }
+if ($("t2")) $("t2").onclick = async () => { unlockAudio(true); tlog("2: scarico la voce…"); try { const b = await ttsBuf("Prova due. Voce di Jarvis.");
   tlog("2: audio scaricato, contesto " + (actx ? actx.state : "assente")); const ok = await playWebAudio(b); tlog(ok ? "2: suono avviato (l'hai sentita?)" : "2: canale audio bloccato (" + (actx ? actx.state : "assente") + ")"); } catch (e) { tlog("2: errore " + (e.message || e)); } };
-$("t3").onclick = async () => { tlog("3: scarico…"); try { const b = await ttsBuf("Prova tre. Lettore audio."); player.src = URL.createObjectURL(new Blob([b], { type: "audio/mpeg" }));
+if ($("t3")) $("t3").onclick = async () => { tlog("3: scarico…"); try { const b = await ttsBuf("Prova tre. Lettore audio."); player.src = URL.createObjectURL(new Blob([b], { type: "audio/mpeg" }));
   player.onended = () => tlog("3: finito (l'hai sentita?)"); await player.play(); tlog("3: suono avviato"); } catch (e) { tlog("3: errore " + (e.name || "") + " " + (e.message || e)); } };
 
 /* ---------- composer ---------- */
@@ -920,7 +944,7 @@ const tick = () => { $("clock").textContent = new Date().toLocaleString("it-IT",
   tick(); setInterval(tick, 15000);
   $("voiceBtn").setAttribute("aria-pressed", String(CFG.voice)); $("voiceBtn").textContent = CFG.voice ? "🔊" : "🔇"; setWakeBtn();
   const h = new Date().getHours();
-  addMsg("j", (h < 13 ? "Buongiorno" : h < 18 ? "Buon pomeriggio" : "Buonasera") + ", signore. " + (CFG.key ? "Tocca 👂 e dimmi «Hey Jarvis», oppure premi 🎙." : "Per iniziare apri ☰ e incolla la tua chiave OpenAI."));
+  addMsg("j", (h < 13 ? "Buongiorno" : h < 18 ? "Buon pomeriggio" : "Buonasera") + ", signore. " + (CFG.key ? "Tocca 👂 e dimmi «Hey Jarvis», oppure premi 🎙." : "Per iniziare apri ☰ e incolla la tua chiave Claude, oppure collega il PC."));
   if (S.chat.length) { addMsg("s", "Ultima conversazione:"); S.chat.slice(-6).forEach(m => addMsg(m.role === "user" ? "u" : "j", m.content)); }
   renderSheet(); checkReminders(); setInterval(checkReminders, 20000);
   refreshTicker(); setInterval(refreshTicker, 60000); setInterval(checkAlerts, 60000); setTimeout(checkAlerts, 5000);
