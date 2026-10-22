@@ -1,0 +1,118 @@
+/* ---- Mark V: VISORE (scene delle azioni vere) ---- */
+#visore{position:fixed;left:50%;top:84px;width:min(900px,calc(100vw - 2*min(340px,calc((100vw - 880px)/2)) - 20px));height:calc(100vh - 84px - 250px);min-height:300px;
+  transform:translateX(-50%);z-index:3;pointer-events:none;opacity:0;transition:opacity .35s;font-family:var(--f-mono,"JetBrains Mono",Consolas,monospace);color:#cdf4ff}
+#visore.on{opacity:1;pointer-events:auto}
+.hud.mk4>#visore{position:fixed;z-index:3}
+.vs-x{position:absolute;right:10px;bottom:10px;background:rgba(3,14,28,.8);border:1px solid rgba(63,240,255,.4);color:#7fdcec;border-radius:50%;width:26px;height:26px;cursor:pointer;z-index:2}
+.vs-stage{position:absolute;inset:0;perspective:1200px}
+.vs-scene{position:absolute;inset:0;display:flex;flex-direction:column;gap:8px;padding:12px 14px;background:linear-gradient(180deg,rgba(2,16,30,.88),rgba(2,10,20,.78));
+  border:1px solid rgba(63,240,255,.45);box-shadow:0 0 40px rgba(63,240,255,.18),inset 0 0 40px rgba(63,240,255,.06);
+  clip-path:polygon(0 14px,14px 0,calc(100% - 14px) 0,100% 14px,100% calc(100% - 14px),calc(100% - 14px) 100%,14px 100%,0 calc(100% - 14px));
+  animation:vsIn .55s cubic-bezier(.2,.9,.25,1) both;overflow:hidden}
+.vs-scene.esce{animation:vsOut .4s ease-in both}
+@keyframes vsIn{0%{opacity:0;transform:translateZ(-400px) rotateX(18deg);filter:brightness(3)}60%{opacity:1;filter:brightness(1.4)}100%{transform:none;filter:none}}
+@keyframes vsOut{to{opacity:0;transform:translateZ(300px) scale(1.06);filter:brightness(2.5)}}
+body.in-visione #neural{opacity:.22;transition:opacity .4s}
+body.in-visione #fx .fx-core{opacity:.25;transition:opacity .4s}
+.vs-h{display:flex;align-items:center;gap:10px;font-size:11px;letter-spacing:.14em;border-bottom:1px solid rgba(63,240,255,.25);padding-bottom:7px;flex-shrink:0}
+.vs-h b{color:#ffce54;font-size:15px}.vs-t{color:#3ff0ff;font-weight:700;letter-spacing:.24em}
+.vs-p{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;color:#e8fbff}
+.vs-id{color:rgba(63,240,255,.55)}
+.vs-foot{display:flex;gap:16px;align-items:center;font-size:10.5px;letter-spacing:.12em;color:rgba(160,220,240,.75);border-top:1px solid rgba(63,240,255,.18);padding-top:6px;flex-shrink:0;min-height:18px}
+.vs-stamp{margin-left:auto;font-weight:700;letter-spacing:.2em;padding:2px 10px;border:1px solid;animation:vsStamp .5s ease-out both}
+.vs-stamp.ok{color:#6dffb0;border-color:#6dffb0;box-shadow:0 0 14px rgba(109,255,176,.35)}.vs-stamp.ko{color:#ff5d73;border-color:#ff5d73}
+@keyframes vsStamp{0%{transform:scale(2.2);opacity:0}100%{transform:none;opacity:1}}
+.vs-vuoto{margin:auto;color:#7d97a6;letter-spacing:.3em}
+/* cartella: tuffo nei livelli del percorso */
+.vs-dive{position:absolute;inset:40px 0 30px;display:grid;place-items:center;pointer-events:none;perspective:700px}
+.vs-dive.via{opacity:0;transition:opacity .3s}
+.vs-gate{grid-area:1/1;width:58%;height:46%;border:2px solid #3ff0ff;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  box-shadow:0 0 30px rgba(63,240,255,.4),inset 0 0 30px rgba(63,240,255,.2);background:rgba(3,30,50,.35);opacity:0;animation:vsGate .75s cubic-bezier(.5,0,.75,0) both}
+.vs-gate em{font-style:normal;font-size:30px;font-weight:700;color:#fff;text-shadow:0 0 18px #3ff0ff;letter-spacing:.06em}
+.vs-gate small{font-size:10px;letter-spacing:.4em;color:#ffce54;margin-top:6px}
+@keyframes vsGate{0%{opacity:0;transform:translateZ(-900px)}30%{opacity:1}62%{opacity:1;transform:translateZ(60px)}100%{opacity:0;transform:translateZ(700px)}}
+.vs-grid{flex:1;min-height:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px;align-content:start;overflow:auto;scrollbar-width:none;perspective:900px}
+.vs-card{display:grid;grid-template-columns:30px 1fr;grid-template-rows:auto auto;column-gap:7px;padding:6px 8px;border:1px solid rgba(63,240,255,.3);background:rgba(4,26,44,.7);
+  animation:vsCard .5s cubic-bezier(.2,.9,.25,1) both;min-width:0}
+.vs-card i{grid-row:1/3;font-style:normal;font-size:10px;font-weight:700;display:grid;place-items:center;border:1px solid rgba(63,240,255,.4);color:#7fdcec}
+.vs-card.dir i{color:#ffce54;border-color:rgba(255,206,84,.6);font-size:15px}
+.vs-card b{font-size:11.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#e8fbff}
+.vs-card.dir b{color:#ffe2a0}.vs-card small{font-size:9.5px;color:rgba(160,220,240,.6)}
+@keyframes vsCard{0%{opacity:0;transform:translateZ(-500px) rotateY(40deg);filter:brightness(3)}100%{opacity:1;transform:none;filter:none}}
+.vs-scan{position:absolute;left:0;right:0;top:40px;height:60px;pointer-events:none;background:linear-gradient(180deg,transparent,rgba(63,240,255,.22),transparent);opacity:0}
+.vs-scan.go{animation:vsScan 1.6s .3s ease-in-out 2}
+@keyframes vsScan{0%{opacity:1;transform:translateY(0)}100%{opacity:1;transform:translateY(calc(100vh - 420px))}}
+/* file: documento che si legge */
+.vs-doc{position:relative;flex:1;min-height:0;display:flex;gap:8px;transform:perspective(1100px) rotateY(-4deg);transform-origin:left center}
+.vs-lines{flex:1;overflow:hidden;font-size:11.5px;line-height:1.55;white-space:pre;scrollbar-width:none;position:relative}
+.vs-lines div{color:rgba(200,236,248,.55);transition:color .3s}
+.vs-lines div.letta{color:#e8fbff}
+.vs-lines u{text-decoration:none;display:inline-block;width:38px;color:rgba(63,240,255,.4);text-align:right;margin-right:12px}
+.vs-lines .k{color:#ff9fd0;font-style:normal}.vs-lines .s{color:#9cf5b8;font-style:normal}.vs-lines .n{color:#ffce54;font-style:normal}.vs-lines .c{color:#6c8b99;font-style:italic}
+.vs-mini{width:46px;flex-shrink:0;display:flex;flex-direction:column;gap:1px;opacity:.6;overflow:hidden}
+.vs-mini i{height:2px;background:rgba(63,240,255,.5)}
+.vs-bar{position:absolute;left:0;right:54px;top:0;height:18px;background:linear-gradient(90deg,rgba(255,206,84,.25),rgba(255,206,84,.04));border-left:3px solid #ffce54;pointer-events:none;transition:transform .08s linear}
+.vs-doc.scrive{transform:perspective(1100px) rotateY(4deg);transform-origin:right center}
+.vs-doc.scrive .vs-lines div{animation:vsLine .25s ease-out both}
+.vs-doc.scrive .add{color:#c9ffd9;background:rgba(109,255,176,.06)}.vs-doc.scrive .add u{color:#6dffb0}
+.vs-doc.scrive .del{color:#ffb3bd;text-decoration:line-through;background:rgba(255,93,115,.06)}.vs-doc.scrive .del u{color:#ff5d73}
+@keyframes vsLine{from{opacity:0;transform:translateX(-14px)}to{opacity:1;transform:none}}
+.vs-foot .cur{animation:vsBlink .7s steps(1) infinite;color:#6dffb0}
+@keyframes vsBlink{50%{opacity:0}}
+/* ricerca */
+.vs-rad{position:absolute;right:18px;top:48px;width:150px;height:150px;border-radius:50%;border:1px solid rgba(63,240,255,.4);display:flex;flex-direction:column;align-items:center;justify-content:center;
+  background:radial-gradient(circle,rgba(63,240,255,.08),transparent 70%),repeating-radial-gradient(circle,transparent 0 24px,rgba(63,240,255,.15) 24px 25px);overflow:hidden}
+.vs-rad b{font-size:34px;color:#fff;text-shadow:0 0 14px #3ff0ff;z-index:1}.vs-rad small{font-size:9px;letter-spacing:.3em;color:#ffce54;z-index:1}
+.vs-sweep{position:absolute;inset:0;background:conic-gradient(from 0deg,rgba(63,240,255,.55),transparent 22%);animation:fxSpin 1.6s linear infinite;border-radius:50%}
+.vs-list{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;gap:3px;font-size:11.5px;padding-right:180px}
+.vs-list.web,.vs-conto .vs-list{padding-right:0}
+.vs-hit{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:3px 8px;border-left:2px solid rgba(63,240,255,.5);background:rgba(4,26,44,.55);animation:vsHit .45s cubic-bezier(.2,.9,.25,1) both}
+.vs-hit mark{background:rgba(255,206,84,.25);color:#ffe2a0;padding:0 2px}
+.vs-hit.up b{color:#6dffb0}.vs-hit.dn b{color:#ff5d73}
+@keyframes vsHit{from{opacity:0;transform:translateX(var(--dx,120px)) scale(.9);filter:brightness(3)}to{opacity:1;transform:none;filter:none}}
+/* terminale */
+.vs-term{flex:1;min-height:0;display:flex;flex-direction:column;background:rgba(0,6,4,.85);border:1px solid rgba(109,255,176,.35);padding:8px 10px;font-size:11.5px;line-height:1.45}
+.vs-cmd{color:#e8fbff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.vs-cmd b{color:#6dffb0}.vs-cmd i{font-style:normal;color:#6dffb0;animation:vsBlink .7s steps(1) infinite}
+.vs-out{flex:1;overflow:hidden;white-space:pre-wrap;word-break:break-all;color:#9cf5b8;margin-top:6px}
+.vs-out div{animation:vsLine .2s ease-out both}.vs-out .err{color:#ff7a8a}.vs-out .hi{color:#ffe2a0}
+/* agenti, mercati, conto */
+.vs-agenti{flex:1;display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;align-content:start}
+.vs-ag{display:grid;grid-template-columns:14px 1fr;gap:2px 8px;padding:10px;border:1px solid rgba(63,240,255,.3);background:rgba(4,26,44,.7);animation:vsCard .5s both}
+.vs-ag i{grid-row:1/4;width:10px;height:10px;border-radius:50%;background:#3b5566;margin-top:3px}
+.vs-ag.on i{background:#6dffb0;box-shadow:0 0 12px #6dffb0;animation:agPulse 1.6s infinite}
+.vs-ag b{color:#fff;font-size:13px}.vs-ag small{font-size:10px;color:#9cc8d8}.vs-ag em{font-style:normal;font-size:9px;color:rgba(63,240,255,.4)}
+.vs-tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px}
+.vs-tiles.big{grid-template-columns:1fr 1fr}
+.vs-tile{padding:12px;border:1px solid rgba(63,240,255,.35);background:rgba(4,26,44,.7);display:flex;flex-direction:column;gap:2px;animation:vsCard .55s both}
+.vs-tile b{font-size:11px;letter-spacing:.24em;color:#3ff0ff}.vs-tile strong{font-size:24px;color:#fff;text-shadow:0 0 14px rgba(63,240,255,.6)}
+.vs-tiles.big strong{font-size:38px}
+.vs-tile small{font-size:10.5px;color:#9cc8d8}.vs-tile.up strong{color:#c9ffd9}.vs-tile.dn strong{color:#ffc2ca}
+.vs-link{display:flex;align-items:center;gap:10px;font-size:11px;letter-spacing:.14em;color:#9cc8d8}
+.vs-link em{flex:1;height:2px;background:linear-gradient(90deg,transparent,#3ff0ff,transparent);background-size:40% 100%;background-repeat:no-repeat;animation:vsFlow 1s linear infinite}
+.vs-link i{width:10px;height:10px;border-radius:50%;background:#3ff0ff;box-shadow:0 0 10px #3ff0ff}
+@keyframes vsFlow{from{background-position:-40% 0}to{background-position:140% 0}}
+body.lite .vs-scene{box-shadow:none}
+@media (max-width:900px){#visore{width:calc(100vw - 24px);top:70px}.vs-list{padding-right:0}.vs-rad{display:none}}
+.vs-scene .vs-foot{padding-right:34px}
+
+/* ---- Mark V: GALASSIA ---- */
+#galassia{position:fixed;inset:0;width:100vw;height:100vh;z-index:0;pointer-events:none}
+.hud.mk4>#galassia{position:fixed;z-index:0}
+body.in-visione #neural{opacity:.5}
+body.in-visione.gal #visore{left:auto;right:max(18px,calc(50vw - 640px));transform:none;width:min(640px,46vw)}
+body.in-visione .col section[data-p].vis{opacity:.1;animation:none;transition:opacity .3s}
+body.in-visione #fx .fx-stream.left,body.in-visione #fx .fx-read.l{opacity:.25}
+
+
+@keyframes fxSpin{to{transform:rotate(360deg)}}
+@keyframes vsBlink{50%{opacity:0}}
+@keyframes agPulse{0%,100%{opacity:1}50%{opacity:.45}}
+/* telefono: galassia a tutto schermo dietro l'app, pannello del visore nella metà bassa */
+#galassia{position:fixed;inset:0;width:100vw;height:100vh;z-index:0;pointer-events:none}
+.app{position:relative;z-index:1}
+#visore{position:fixed!important;left:10px!important;right:10px!important;width:auto!important;transform:none!important;top:46vh!important;height:auto!important;bottom:calc(150px + env(safe-area-inset-bottom,0px))!important;min-height:220px;z-index:50}
+.vs-scene{padding:10px}.vs-h{font-size:10px;gap:6px}.vs-t{letter-spacing:.14em}.vs-id{display:none}
+.vs-gate em{font-size:22px}.vs-grid{grid-template-columns:repeat(auto-fill,minmax(130px,1fr))}
+.vs-list{padding-right:0}.vs-rad{width:96px;height:96px;top:auto;bottom:40px}.vs-rad b{font-size:24px}
+.vs-tiles.big strong{font-size:28px}.vs-doc,.vs-doc.scrive{transform:none}.vs-mini{display:none}
+.vs-lines u{width:28px;margin-right:8px}

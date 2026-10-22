@@ -11,10 +11,14 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;800&family=Rajdhani:wght@500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="cinema.css">
 <style>
 :root{--bg:#03080f;--panel:#06131f;--line:rgba(70,225,255,.22);--cyan:#46e1ff;--cyan-d:#1b8fb0;--text:#d8f3fb;--muted:#6c93a6;--amber:#ffb84d;--green:#62f5b4;--red:#ff5a6a;
   --f-head:"Orbitron",system-ui,sans-serif;--f-body:"Rajdhani","Segoe UI",system-ui,sans-serif;--f-mono:"JetBrains Mono",ui-monospace,Consolas,monospace;color-scheme:dark;--core:var(--cyan)}
 [hidden]{display:none!important}
+/* Mark V: al posto del vecchio nucleo, la costellazione del PC */
+.core-wrap .core{display:none}
+#galSlot{width:100%;height:30vh;min-height:190px;cursor:pointer;flex-shrink:0}
 *{box-sizing:border-box}html,body{height:100%;margin:0}
 body{background:var(--bg);color:var(--text);font-family:var(--f-body);font-size:17px;-webkit-font-smoothing:antialiased;overflow:hidden;
   background-image:radial-gradient(circle at 50% 18%,rgba(30,140,190,.22),transparent 55%),linear-gradient(rgba(70,225,255,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(70,225,255,.035) 1px,transparent 1px);background-size:auto,38px 38px,38px 38px}
@@ -109,6 +113,7 @@ pre{position:relative;font-family:var(--f-mono);font-size:12px;line-height:1.5;b
       <g class="rg r4"><circle cx="100" cy="100" r="50" fill="none" stroke="currentColor" stroke-width="1.4" stroke-dasharray="18 7 3 7"/></g>
       <circle class="glow" cx="100" cy="100" r="40" fill="url(#cg)"/><circle cx="100" cy="100" r="17" fill="#effdff"/>
     </svg>
+    <div id="galSlot" role="button" tabindex="0" aria-label="Parla con JARVIS"></div>
     <div class="state" id="state">IN LINEA</div>
     <div class="heard" id="heard"></div>
   </div>
@@ -188,7 +193,7 @@ let busy = false, pendingImage = null, viaVoice = false;
 
 /* ---------- interfaccia ---------- */
 let mode = null;
-function setState(s) { mode = s; ["thinking", "speaking", "listening"].forEach(c => document.body.classList.toggle(c, s === c));
+function setState(s) { mode = s; ["thinking", "speaking", "listening"].forEach(c => { document.body.classList.toggle(c, s === c); document.body.classList.toggle("s-" + c, s === c); });
   $("state").textContent = s === "thinking" ? "ELABORAZIONE" : s === "speaking" ? "IN COMUNICAZIONE" : s === "listening" ? "TI ASCOLTO" : (PC.on ? "PC · " : "") + (CFG.wake ? (needTap ? "TOCCA LO SCHERMO PER ASCOLTARE" : "DI' «HEY JARVIS»") : PC.on ? (PC.online ? "COLLEGATO" : "IN COLLEGAMENTO…") : "IN LINEA"); }
 const esc = t => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const PY = /(#[^\n]*)|("""[\s\S]*?"""|'''[\s\S]*?'''|"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*')|\b(def|class|return|if|elif|else|for|while|in|import|from|as|with|try|except|raise|lambda|and|or|not|is|None|True|False|pass|break|continue)\b|\b(\d+(?:\.\d+)?)\b/g;
@@ -377,6 +382,7 @@ $("wakeBtn").onclick = () => {
   else { stopWake(); try { wakeLock && wakeLock.release(); } catch {} wakeLock = null; }
 };
 $("micBtn").onclick = () => { micDenied = false; if (listening) { manualStop = true; try { rec.stop(); } catch {} return; } convo = false; listen(); };
+$("galSlot").onclick = () => $("core").onclick();
 $("core").onclick = () => { if (CFG.wake && needTap) { needTap = false; startWake(true); } else $("micBtn").click(); };
 $("core").onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $("micBtn").click(); } };
 document.addEventListener("visibilitychange", () => { if (document.hidden) stopWake(); else { keepAwake(); resumeWake(); } });
@@ -779,6 +785,7 @@ async function pcIncoming(wrapper) {
   const wt = PC.waits[m.re];
   if (m.k === "ack") { if (wt) wt.ack(); return; }
   if (wt) { wt.ok(m); return; }
+  if (m.k === "visione") { if (window.VISORE) window.VISORE.mostra(m); return; }
   if (m.k === "reply") showPcReply(m, true);
 }
 function pcConnect() {
@@ -988,6 +995,38 @@ const tick = () => { $("clock").textContent = new Date().toLocaleString("it-IT",
     if (empty) { const ok = await pcSyncGet(); if (ok && CFG.key) $("drawer").hidden = true; } else pcSyncPut(true); })(); }
   if (!SR) addMsg("s", IOS ? "Su iPhone per parlarmi apri questa pagina direttamente in Safari (non dall'icona della Home)." : "Per parlarmi apri questa pagina con Google Chrome.");
   try { speechSynthesis.getVoices(); } catch {}
+})();
+</script>
+<script>
+window.GALASSIA_CFG = { contenitore: "body", zoom: 1.7, ancora(visione) {
+  const r = document.getElementById("galSlot").getBoundingClientRect();
+  return visione ? [innerWidth / 2, Math.max(110, innerHeight * .25)] : [r.left + r.width / 2, r.top + r.height / 2];
+} };
+window.VISORE_CFG = { contenitore: "body" };
+</script>
+<script src="galassia.js"></script>
+<script src="visore.js"></script>
+<script>
+/* Mark V: la mappa delle cartelle arriva dal PC (una volta al giorno, poi resta nel telefono) */
+(function () {
+  if (!window.GALASSIA) return;
+  const cache = LS.get("mappa", null);
+  if (cache && cache.d && cache.d.nodi) GALASSIA.carica(cache.d); else GALASSIA.radice("PC");
+  async function pcAsk(obj, ms) {
+    if (!(await pcSetup())) throw new Error("codice"); if (!PC.es) pcConnect();
+    const id = rid(), p = pcWait(id, ms || 25000, ms || 25000); await pcSend({ ...obj, id }); return await p;
+  }
+  let inCorso = false;
+  async function caricaMappa(forza) {
+    const c = LS.get("mappa", null);
+    if (!forza && c && Date.now() - c.t < 24 * 3600e3) return;
+    if (inCorso) return; inCorso = true;
+    try { const m = await pcAsk({ k: "mappa_lite" }); if (m && m.nodi && m.nodi.length) { LS.set("mappa", { t: Date.now(), d: { nodi: m.nodi } }); GALASSIA.carica({ nodi: m.nodi }); } }
+    catch (e) {} finally { inCorso = false; }
+  }
+  const _ping = pcPing;
+  pcPing = async function () { const ok = await _ping(); if (ok) caricaMappa(false); return ok; };
+  window.caricaMappa = caricaMappa;
 })();
 </script>
 </body>
