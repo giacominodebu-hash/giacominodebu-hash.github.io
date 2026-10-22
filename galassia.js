@@ -1,381 +1,288 @@
-/* J.A.R.V.I.S. Mark V · GALASSIA (versione cinema)
-   Il tuo computer come una galassia 3D: il PC è la stella centrale, ogni cartella una stella dorata, ogni file una stella azzurra.
-   Spazio profondo con nebulose e tre strati di stelle; quando JARVIS lavora la telecamera fa il salto nell'iperspazio fino alla
-   cartella vera, arriva con un'onda d'urto, la cartella si apre e i suoi file nascono come nuove stelle.
-   A riposo la telecamera esplora da sola le tue cartelle. Dati: /api/mappa (solo nomi) ed eventi "visione". */
+/* J.A.R.V.I.S. Mark V · GALASSIA FLUIDA
+   La galassia del tuo computer (il PC al centro, cartelle dorate, file azzurri) viene disegnata UNA volta sola;
+   poi tutto si muove con le animazioni della scheda video (zoom, voli, comete, pulsazioni): il processore resta quasi fermo,
+   quindi è fluida anche su PC vecchi e telefoni. Quando JARVIS usa una cartella, la telecamera vola fin lì e la cartella si apre.
+   API: GALASSIA.vai(d) · torna() · carica(dati) · radice(nome) · cometa(titolo, fonte) · nodi */
 "use strict";
 (function () {
   const CFG = window.GALASSIA_CFG || {};
   const hud = CFG.contenitore ? document.querySelector(CFG.contenitore) : document.getElementById("hud"); if (!hud) return;
-  const cv = document.createElement("canvas"); cv.id = "galassia"; cv.setAttribute("aria-hidden", "true");
-  const neural = document.getElementById("neural"); hud.insertBefore(cv, neural || hud.firstChild);
-  const g = cv.getContext("2d");
-  const LITE = () => document.body.classList.contains("lite");
   const TAU = Math.PI * 2, lerp = (a, b, t) => a + (b - a) * t, rnd = (a, b) => a + Math.random() * (b - a);
-  let W = 0, H = 0, DPR = 1;
-  const nodi = [], perPath = new Map();
-  let focus = null, focusAt = 0, arrivato = false, chain = new Set(), t0 = performance.now(), last = 0;
-  let tour = null, tourFine = 0, prossimoTour = performance.now() + 15000, ultimaAzione = 0;
-  const cam = { x: 0, y: 0, z: 0, d: 2400, yaw: 0, pitch: .42, ax: 0, ay: 0, px: 0, py: 0, pz: 0, pd: 2400, vel: 0 };
-  const onde = [], scintille = [], pacchetti = [], comete = [], fulmini = [];
-  let livello = 0, impulso = 0;
+  const esc = t => String(t == null ? "" : t).replace(/&/g, "&amp;").replace(/</g, "&lt;");
   const key = p => String(p || "").replace(/\//g, "\\").replace(/\\+$/, "").toLowerCase();
 
-  // ---------- struttura della galassia (forma stabile per percorso) ----------
+  // ---------- stile (tutto animato dalla scheda video: transform e opacity) ----------
+  const css = document.createElement("style"); css.id = "gx-style";
+  css.textContent = `
+#galassia{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden;background:#02050c;contain:strict}
+.hud.mk4>#galassia{position:fixed;z-index:0}
+#galassia .gx-sky{position:absolute;inset:-10%;background-size:cover;background-position:center;opacity:.95;animation:gxSky 90s ease-in-out infinite alternate;will-change:transform}
+#galassia .gx-stars{position:absolute;left:0;top:0;width:200%;height:100%;background-repeat:repeat;will-change:transform,opacity}
+#galassia .gx-stars.a{animation:gxStars 240s linear infinite,gxTw 5s ease-in-out infinite alternate}
+#galassia .gx-stars.b{animation:gxStars 150s linear infinite,gxTw 3.2s ease-in-out infinite alternate-reverse;opacity:.7}
+#galassia .gx-drift{position:absolute;inset:0;animation:gxDrift 38s ease-in-out infinite alternate;will-change:transform}
+#galassia.fermo .gx-drift{animation-play-state:paused}
+#galassia .gx-stage{position:absolute;left:0;top:0;transform-origin:0 0;will-change:transform}
+#galassia .gx-stage canvas{position:absolute;left:0;top:0}
+#galassia .gx-pc{position:absolute;width:0;height:0;--c:140,220,255}
+body.s-thinking #galassia .gx-pc{--c:255,200,90}body.s-listening #galassia .gx-pc{--c:120,255,200}body.s-alert #galassia .gx-pc{--c:255,160,60}body.s-error #galassia .gx-pc{--c:255,70,95}
+#galassia .gx-pc i{position:absolute;left:-90px;top:-90px;width:180px;height:180px;border-radius:50%;background:radial-gradient(circle,#fff 0,rgba(var(--c),.95) 9%,rgba(var(--c),.35) 26%,rgba(var(--c),0) 62%);animation:gxPulse 3.2s ease-in-out infinite}
+body.s-thinking #galassia .gx-pc i{animation-duration:1.1s}
+#galassia .gx-pc b{position:absolute;left:-260px;top:-1.5px;width:520px;height:3px;background:linear-gradient(90deg,rgba(var(--c),0),rgba(var(--c),.7),rgba(var(--c),0))}
+#galassia .gx-pc em{position:absolute;left:-70px;top:-70px;width:140px;height:140px;border-radius:50%;border:1.5px solid rgba(var(--c),.55);border-left-color:transparent;border-right-color:transparent;animation:gxSpin 9s linear infinite}
+#galassia .gx-pc em+em{left:-95px;top:-95px;width:190px;height:190px;border-color:rgba(var(--c),.3);border-top-color:transparent;border-bottom-color:transparent;animation-duration:14s;animation-direction:reverse}
+#galassia .gx-pc u{position:absolute;left:-40px;top:-40px;width:80px;height:80px;border-radius:50%;border:2px solid rgba(var(--c),.6);opacity:0}
+body.s-thinking #galassia .gx-pc u,body.s-speaking #galassia .gx-pc u{animation:gxOnda 2.2s ease-out infinite}
+body.s-thinking #galassia .gx-pc u+u,body.s-speaking #galassia .gx-pc u+u{animation-delay:1.1s}
+#galassia .gx-pc span{position:absolute;left:-120px;top:58px;width:240px;text-align:center;font:700 12px Orbitron,Rajdhani,sans-serif;letter-spacing:.2em;color:rgba(var(--c),.9)}
+#galassia .gx-pc.flash i{animation:gxFlash .7s ease-out}
+#galassia .gx-labels{position:absolute;inset:0}
+#galassia .gx-dot{position:absolute;width:10px;height:10px;margin:-5px 0 0 -5px;border-radius:50%;background:radial-gradient(circle,#fff,rgba(90,210,255,.9) 40%,rgba(90,210,255,0) 72%);animation:gxNasce .7s cubic-bezier(.2,.9,.25,1) both}
+#galassia .gx-dot.d{width:14px;height:14px;margin:-7px 0 0 -7px;background:radial-gradient(circle,#fff,rgba(255,200,90,.95) 40%,rgba(255,200,90,0) 72%)}
+#galassia .gx-dot span{position:absolute;left:14px;top:-3px;white-space:nowrap;font:500 11.5px "JetBrains Mono",Consolas,monospace;color:#bfeeff;text-shadow:0 0 6px #000}
+#galassia .gx-dot.d span{color:#ffe2a0;font-weight:700}
+#galassia .gx-lock{position:absolute;left:0;top:0;width:0;height:0;opacity:0;transition:opacity .4s}
+#galassia.agganciato .gx-lock{opacity:1}
+#galassia .gx-lock>i{position:absolute;border-radius:50%;border:1.5px solid rgba(255,200,90,.7);left:-34px;top:-34px;width:68px;height:68px;border-left-color:transparent;animation:gxSpin 4s linear infinite}
+#galassia .gx-lock>i+i{left:-52px;top:-52px;width:104px;height:104px;border-color:rgba(255,200,90,.35);border-top-color:transparent;animation-duration:7s;animation-direction:reverse}
+#galassia .gx-lock>i+i+i{left:-16px;top:-16px;width:32px;height:32px;border:0;background:radial-gradient(circle,#fff,rgba(255,220,150,.8) 35%,rgba(255,200,90,0) 70%);animation:gxPulse 1.4s ease-in-out infinite}
+#galassia .gx-lock>b{position:absolute;left:-46px;top:-46px;width:92px;height:92px;
+  background:linear-gradient(#fff,#fff) 0 0/14px 2px,linear-gradient(#fff,#fff) 0 0/2px 14px,linear-gradient(#fff,#fff) 100% 0/14px 2px,linear-gradient(#fff,#fff) 100% 0/2px 14px,
+             linear-gradient(#fff,#fff) 0 100%/14px 2px,linear-gradient(#fff,#fff) 0 100%/2px 14px,linear-gradient(#fff,#fff) 100% 100%/14px 2px,linear-gradient(#fff,#fff) 100% 100%/2px 14px;background-repeat:no-repeat;opacity:.85}
+#galassia .gx-call{position:absolute;left:44px;top:-74px;padding:6px 12px;border:1px solid rgba(255,200,90,.6);background:rgba(3,14,26,.72);white-space:nowrap;animation:gxCall .6s .2s cubic-bezier(.2,.9,.25,1) both}
+#galassia .gx-call b{display:block;font:700 15px "JetBrains Mono",Consolas,monospace;color:#fff}
+#galassia .gx-call small{font:500 9.5px Consolas,monospace;color:rgba(255,200,90,.95);letter-spacing:.06em}
+#galassia .gx-warp{position:absolute;inset:-20%;opacity:0;background:repeating-conic-gradient(from 0deg at 50% 50%,rgba(170,225,255,0) 0deg 2.2deg,rgba(170,225,255,.22) 2.4deg 2.6deg);
+  -webkit-mask-image:radial-gradient(circle,transparent 12%,#000 60%);mask-image:radial-gradient(circle,transparent 12%,#000 60%)}
+#galassia.warp .gx-warp{animation:gxWarp 1.5s ease-in-out}
+#galassia .gx-comet{position:absolute;left:0;top:0;animation:gxCometa var(--d,7s) cubic-bezier(.45,.05,.55,.95) forwards;will-change:transform}
+#galassia .gx-comet i{position:absolute;left:-150px;top:-1.5px;width:160px;height:3px;transform:rotate(var(--a,0deg));transform-origin:150px 1.5px;background:linear-gradient(90deg,rgba(120,220,255,0),rgba(120,220,255,.4) 60%,#fff8e0)}
+#galassia .gx-comet u{position:absolute;left:-10px;top:-10px;width:20px;height:20px;border-radius:50%;background:radial-gradient(circle,#fff,rgba(255,235,190,.8) 35%,rgba(255,235,190,0) 70%)}
+#galassia .gx-comet span{position:absolute;left:16px;top:-26px;white-space:nowrap;font:600 13px "JetBrains Mono",Consolas,monospace;color:#fff8e0;text-shadow:0 0 8px #000;animation:gxTesto var(--d,7s) linear forwards}
+#galassia .gx-comet span small{display:block;font:500 10px Consolas,monospace;color:rgba(120,220,255,.9)}
+#galassia .gx-comet.sx span{left:auto;right:16px;text-align:right}
+@keyframes gxSky{to{transform:translate(-3%,2%) scale(1.06)}}
+@keyframes gxStars{to{transform:translateX(-50%)}}
+@keyframes gxTw{from{opacity:.55}to{opacity:1}}
+@keyframes gxDrift{0%{transform:translate(0,0) scale(1)}50%{transform:translate(-1.2%,.8%) scale(1.025)}100%{transform:translate(1%,-.6%) scale(1.01)}}
+@keyframes gxPulse{0%,100%{transform:scale(1);opacity:.92}50%{transform:scale(1.12);opacity:1}}
+@keyframes gxFlash{0%{transform:scale(1.6)}100%{transform:scale(1)}}
+@keyframes gxSpin{to{transform:rotate(360deg)}}
+@keyframes gxOnda{0%{transform:scale(.6);opacity:.9}100%{transform:scale(4.2);opacity:0}}
+@keyframes gxNasce{from{transform:translate(var(--dx,0),var(--dy,0)) scale(.2);opacity:0}to{transform:none;opacity:1}}
+@keyframes gxCall{from{opacity:0;transform:translateX(-12px)}to{opacity:1;transform:none}}
+@keyframes gxWarp{0%{opacity:0;transform:scale(.6)}35%{opacity:1}100%{opacity:0;transform:scale(1.6)}}
+@keyframes gxCometa{from{transform:translate(var(--x0),var(--y0))}to{transform:translate(var(--x1),var(--y1))}}
+@keyframes gxTesto{0%{opacity:0}12%,85%{opacity:1}100%{opacity:0}}
+`;
+  document.head.appendChild(css);
+
+  const root = document.createElement("div"); root.id = "galassia"; root.setAttribute("aria-hidden", "true");
+  root.innerHTML = `<div class="gx-sky"></div><div class="gx-stars a"></div><div class="gx-stars b"></div>
+    <div class="gx-drift"><div class="gx-stage"><canvas class="gx-base"></canvas><canvas class="gx-over"></canvas>
+      <div class="gx-pc"><i></i><b></b><em></em><em></em><u></u><u></u><span>NODO-01</span></div></div></div>
+    <div class="gx-warp"></div><div class="gx-labels"></div><div class="gx-lock"><b></b><i></i><i></i><i></i></div><div class="gx-comets"></div>`;
+  const neural = document.getElementById("neural"); hud.insertBefore(root, neural || hud.firstChild);
+  const stage = root.querySelector(".gx-stage"), base = root.querySelector(".gx-base"), over = root.querySelector(".gx-over"), pcEl = root.querySelector(".gx-pc");
+  const labels = root.querySelector(".gx-labels"), lock = root.querySelector(".gx-lock"), cometeEl = root.querySelector(".gx-comets");
+
+  // ---------- cielo: nebulose e stelle disegnate una volta ----------
+  (function cielo() {
+    const c = document.createElement("canvas"); c.width = 1024; c.height = 640; const x = c.getContext("2d");
+    x.fillStyle = "#02050c"; x.fillRect(0, 0, 1024, 640);
+    const col = [["40,90,200", .26], ["120,60,220", .2], ["20,160,190", .2], ["200,120,60", .08], ["70,40,160", .2]];
+    for (let i = 0; i < 24; i++) {
+      const [rgb, a] = col[i % col.length], px = rnd(0, 1024), py = rnd(60, 580), r = rnd(90, 300);
+      const gr = x.createRadialGradient(px, py, 0, px, py, r); gr.addColorStop(0, `rgba(${rgb},${a})`); gr.addColorStop(1, `rgba(${rgb},0)`);
+      x.fillStyle = gr; x.beginPath(); x.ellipse(px, py, r * 1.6, r * .7, rnd(-.6, .6), 0, TAU); x.fill();
+    }
+    root.querySelector(".gx-sky").style.backgroundImage = `url(${c.toDataURL("image/jpeg", .82)})`;
+    for (const [sel, n, max] of [[".gx-stars.a", 260, 1.6], [".gx-stars.b", 120, 2.2]]) {
+      const s = document.createElement("canvas"); s.width = 900; s.height = 700; const y = s.getContext("2d");
+      for (let i = 0; i < n; i++) { const al = rnd(.35, 1); y.fillStyle = Math.random() < .15 ? `rgba(255,220,180,${al})` : `rgba(220,235,255,${al})`; y.beginPath(); y.arc(rnd(0, 900), rnd(0, 700), rnd(.4, max), 0, TAU); y.fill(); }
+      root.querySelector(sel).style.backgroundImage = `url(${s.toDataURL("image/png")})`;
+    }
+  })();
+
+  // ---------- struttura della galassia (forma stabile) ----------
+  const nodi = [], perPath = new Map();
   function seed(str) { let h = 2166136261; for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); } return () => { h ^= h << 13; h ^= h >>> 17; h ^= h << 5; return ((h >>> 0) % 100000) / 100000; }; }
-  function aggiungi(p, n, d, par, nato) {
+  function aggiungi(p, n, d, par) {
     const k = key(p); if (perPath.has(k)) return perPath.get(k);
     const P = par != null && par >= 0 ? nodi[par] : null, r = seed(k), depth = P ? P.depth + 1 : 0;
     let dir;
     if (!P) dir = [0, 0, 0];
-    else if (depth === 1) { const i = P.kids.length, a = i * 2.39996, y = 1 - ((i * .37) % 1) * 2, rr = Math.sqrt(1 - y * y); dir = [Math.cos(a) * rr, y * .55, Math.sin(a) * rr]; }
+    else if (depth === 1) { const i = P.kids.length, a = i * 2.39996, y = 1 - ((i * .37) % 1) * 2, rr = Math.sqrt(Math.max(0, 1 - y * y)); dir = [Math.cos(a) * rr, y * .55, Math.sin(a) * rr]; }
     else { const v = [P.dir[0] * .8 + (r() - .5) * 1.3, P.dir[1] * .8 + (r() - .5) * 1.1, P.dir[2] * .8 + (r() - .5) * 1.3]; const L = Math.hypot(...v) || 1; dir = v.map(x => x / L); }
     const dist = P ? (d ? 260 / (1 + depth * .42) : 72 / (1 + depth * .15)) * (.75 + r() * .5) : 0;
-    const node = { p, n, d, par: P ? par : -1, depth, dir, kids: [], x: P ? P.x + dir[0] * dist : 0, y: P ? P.y + dir[1] * dist : 0, z: P ? P.z + dir[2] * dist : 0, nato: nato || 0, ph: r() * TAU, sx: 0, sy: 0, s: 0, z2: 0, vis: false };
-    nodi.push(node); const i = nodi.length - 1; perPath.set(k, i); if (P) P.kids.push(i);
-    return i;
+    nodi.push({ p, n, d, par: P ? par : -1, depth, dir, kids: [], x: P ? P.x + dir[0] * dist : 0, y: P ? P.y + dir[1] * dist : 0, z: P ? P.z + dir[2] * dist : 0, bx: 0, by: 0, nuovo: false });
+    const i = nodi.length - 1; perPath.set(k, i); if (P) P.kids.push(i); return i;
   }
   function trovaOCrea(path, isDir) {
     const k = key(path); if (perPath.has(k)) return perPath.get(k);
     const parts = String(path).replace(/\//g, "\\").split("\\").filter(Boolean);
-    let i = parts.length - 1, base = -1;
-    for (; i > 0; i--) { const pk = key(parts.slice(0, i).join("\\")); if (perPath.has(pk)) { base = perPath.get(pk); break; } }
-    if (base < 0) base = 0;
-    const ora = performance.now();
-    for (let j = i; j < parts.length; j++) base = aggiungi(parts.slice(0, j + 1).join("\\"), parts[j], j < parts.length - 1 || isDir, base, ora + (j - i) * 160);
-    return base;
-  }
-  let caricando = false, centro = [0, 0, 0], raggio = 400;
-  function misura() {
-    if (!nodi.length) return; let x = 0, y = 0, z = 0; nodi.forEach(n => { x += n.x; y += n.y; z += n.z; });
-    centro = [x / nodi.length, y / nodi.length, z / nodi.length];
-    const ds = nodi.map(n => Math.hypot(n.x - centro[0], n.y - centro[1], n.z - centro[2])).sort((a, b) => a - b);
-    raggio = Math.max(150, ds[Math.floor(ds.length * .9)] || 400);
-  }
-  async function carica() {
-    if (caricando || nodi.length > 2 || typeof api !== "function") return; caricando = true;
-    try { const d = await api("/mappa"); (d.nodi || []).forEach(n => aggiungi(n.p, n.n, n.d, n.a, 0)); misura(); }
-    catch (e) { /* senza mappa: la galassia nasce dalle azioni */ }
-    finally { caricando = false; if (!nodi.length) aggiungi("C:\\Users", "PC", true, -1); }
-  }
-  if (!CFG.contenitore) new MutationObserver(() => { if (!hud.hidden) { setTimeout(layout, 30); if (nodi.length < 3) carica(); } }).observe(hud, { attributes: true, attributeFilter: ["hidden"] });
-
-  // ---------- luci pre-disegnate ----------
-  const spr = {};
-  function sprite(rgb, soft) {
-    const k = rgb + (soft ? "s" : ""); if (spr[k]) return spr[k];
-    const c = document.createElement("canvas"); c.width = c.height = 64; const x = c.getContext("2d"); const gr = x.createRadialGradient(32, 32, 0, 32, 32, 32);
-    if (soft) { gr.addColorStop(0, `rgba(${rgb},.5)`); gr.addColorStop(.4, `rgba(${rgb},.12)`); gr.addColorStop(1, `rgba(${rgb},0)`); }
-    else { gr.addColorStop(0, "rgba(255,255,255,1)"); gr.addColorStop(.12, `rgba(${rgb},.95)`); gr.addColorStop(.35, `rgba(${rgb},.32)`); gr.addColorStop(1, `rgba(${rgb},0)`); }
-    x.fillStyle = gr; x.fillRect(0, 0, 64, 64); return spr[k] = c;
-  }
-  const ORO = "255,200,90", AZZ = "90,210,255", BIA = "255,255,255", VIOLA = "160,110,255";
-  // nebulose: disegnate una volta su una tela grande, poi solo spostate
-  let neb = null;
-  function nebulose() {
-    const c = document.createElement("canvas"); c.width = 1024; c.height = 640; const x = c.getContext("2d");
-    const col = [["40,90,200", .22], ["120,60,220", .16], ["20,160,190", .18], ["200,120,60", .07], ["70,40,160", .18]];
-    for (let i = 0; i < (LITE() ? 14 : 26); i++) {
-      const [rgb, a] = col[i % col.length], px = rnd(0, 1024), py = rnd(80, 560), r = rnd(90, 300);
-      const gr = x.createRadialGradient(px, py, 0, px, py, r); gr.addColorStop(0, `rgba(${rgb},${a})`); gr.addColorStop(1, `rgba(${rgb},0)`);
-      x.fillStyle = gr; x.beginPath(); x.ellipse(px, py, r * 1.6, r * .7, rnd(-.6, .6), 0, TAU); x.fill();
-    }
-    // polvere
-    for (let i = 0; i < 900; i++) { x.fillStyle = `rgba(200,225,255,${rnd(.03, .18)})`; x.fillRect(rnd(0, 1024), rnd(0, 640), 1, 1); }
-    neb = c;
-    try { cv.style.backgroundImage = `url(${c.toDataURL("image/jpeg", .8)})`; cv.style.backgroundSize = "auto 125%"; cv.style.backgroundRepeat = "repeat-x"; cv.style.transition = "background-position 1.6s linear"; } catch {}
-  }
-  // stelle di sfondo su una sfera lontana (tre strati)
-  const fondo = [];
-  function stelleFondo() {
-    fondo.length = 0; const n = LITE() ? 260 : 620;
-    for (let i = 0; i < n; i++) { const a = rnd(0, TAU), b = Math.asin(rnd(-1, 1)); fondo.push({ a, b, l: i % 3, s: rnd(.5, 1.7), tw: rnd(0, TAU), c: Math.random() < .12 ? "255,220,180" : Math.random() < .2 ? "170,200,255" : "230,240,255" }); }
+    let i = parts.length - 1, b = -1;
+    for (; i > 0; i--) { const pk = key(parts.slice(0, i).join("\\")); if (perPath.has(pk)) { b = perPath.get(pk); break; } }
+    if (b < 0) b = 0;
+    for (let j = i; j < parts.length; j++) b = aggiungi(parts.slice(0, j + 1).join("\\"), parts[j], j < parts.length - 1 || isDir, b);
+    return b;
   }
 
-  function layout() {
-    DPR = LITE() || ridotto ? 1 : Math.min(1.5, devicePixelRatio || 1);
-    W = cv.clientWidth; H = cv.clientHeight; if (!W) return; cv.width = W * DPR; cv.height = H * DPR; g.setTransform(DPR, 0, 0, DPR, 0, 0);
-    if (!neb) nebulose(); if (!fondo.length) stelleFondo();
+  // ---------- disegno della galassia: UNA volta (o quando cambiano i nodi) ----------
+  const DPR = Math.min(1.5, window.devicePixelRatio || 1);
+  let BW = 1800, BH = 1100; const sprites = {};
+  function sprite(rgb) { if (sprites[rgb]) return sprites[rgb]; const c = document.createElement("canvas"); c.width = c.height = 48; const x = c.getContext("2d"); const gr = x.createRadialGradient(24, 24, 0, 24, 24, 24); gr.addColorStop(0, "#fff"); gr.addColorStop(.15, `rgba(${rgb},.95)`); gr.addColorStop(.4, `rgba(${rgb},.3)`); gr.addColorStop(1, `rgba(${rgb},0)`); x.fillStyle = gr; x.fillRect(0, 0, 48, 48); return sprites[rgb] = c; }
+  function proietta() {
+    const yaw = .6, pitch = .42, cy = Math.cos(yaw), sy = Math.sin(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch);
+    let mx = 0, my = 0, mz = 0; nodi.forEach(n => { mx += n.x; my += n.y; mz += n.z; }); mx /= nodi.length; my /= nodi.length; mz /= nodi.length;
+    let R = 1; nodi.forEach(n => { R = Math.max(R, Math.hypot(n.x - mx, n.y - my, n.z - mz)); });
+    const D = R * 2.4; const pts = nodi.map(n => { const x = n.x - mx, y = n.y - my, z = n.z - mz; const x1 = x * cy - z * sy, z1 = x * sy + z * cy, y1 = y * cp - z1 * sp, z2 = y * sp + z1 * cp + D; const s = D / Math.max(D * .3, z2); return [x1 * s, y1 * s, s]; });
+    let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9; pts.forEach(([x, y]) => { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); });
+    const pad = 140, w = Math.max(1, x1 - x0), h = Math.max(1, y1 - y0), k = Math.min(1700 / w, 1100 / h, 3);
+    BW = Math.round(w * k + pad * 2); BH = Math.round(h * k + pad * 2);
+    nodi.forEach((n, i) => { n.bx = (pts[i][0] - x0) * k + pad; n.by = (pts[i][1] - y0) * k + pad; n.prof = pts[i][2]; });
   }
-  new ResizeObserver(layout).observe(document.body); window.addEventListener("resize", layout);
-
-  function stato() { const c = document.body.className; return c.includes("s-thinking") ? "thinking" : c.includes("s-listening") ? "listening" : c.includes("s-speaking") ? "speaking" : c.includes("s-alert") ? "alert" : c.includes("s-error") ? "error" : "idle"; }
-  function ancora() {   // dove sta il centro dell'inquadratura sullo schermo
-    if (CFG.ancora) return CFG.ancora(focus != null && document.body.classList.contains("in-visione"));
-    if (focus != null && document.body.classList.contains("in-visione")) return [W * .28, H * .5];
-    const box = document.querySelector(".map-area"); const r = box ? box.getBoundingClientRect() : null;
-    return r && r.width ? [r.left + r.width / 2, r.top + r.height * .42] : [W / 2, H * .42];
-  }
-
-  // ---------- disegno ----------
-  function draw(now) {
-    const T = (now - t0) / 1000, lite = LITE(), st = stato();
-    const F = focus != null ? nodi[focus] : null, TR = !F && tour != null ? nodi[tour] : null, bersaglio = F || TR;
-    // telecamera: punta il bersaglio, altrimenti tutta la galassia
-    const R0 = nodi[0] || { x: 0, y: 0, z: 0 };   // a riposo il PC sta al centro della galassia
-    const tx = bersaglio ? bersaglio.x : lerp(R0.x, centro[0], .3), ty = bersaglio ? bersaglio.y : lerp(R0.y, centro[1], .3), tz = bersaglio ? bersaglio.z : lerp(R0.z, centro[2], .3);
-    const td = (F ? (F.d ? 500 : 300) : TR ? 640 : raggio * 2.15) / (CFG.zoom || 1);
-    const kk = F ? .05 : TR ? .025 : .03;
-    cam.px = cam.x; cam.py = cam.y; cam.pz = cam.z; cam.pd = cam.d;
-    cam.x = lerp(cam.x, tx, kk); cam.y = lerp(cam.y, ty, kk); cam.z = lerp(cam.z, tz, kk); cam.d = lerp(cam.d, td, kk * .9); cam.pitch = lerp(cam.pitch, F ? .26 : TR ? .32 : .42, .03);
-    cam.yaw += (F ? .0022 : .0011) * (st === "thinking" ? 2.2 : 1);
-    const vel = Math.hypot(cam.x - cam.px, cam.y - cam.py, cam.z - cam.pz) + Math.abs(cam.d - cam.pd) * .6;
-    cam.vel = lerp(cam.vel, vel, .2);
-    const warp = Math.min(1, Math.max(0, (cam.vel - 4) / 22));
-    const [ax, ay] = ancora(); cam.ax = lerp(cam.ax || ax, ax, .06); cam.ay = lerp(cam.ay || ay, ay, .06);
-    const cy = Math.cos(cam.yaw), sy = Math.sin(cam.yaw), cp = Math.cos(cam.pitch), sp = Math.sin(cam.pitch), FOC = Math.min(W, H) * .95;
-    for (const n of nodi) {
-      const x = n.x - cam.x, y = n.y - cam.y, z = n.z - cam.z;
-      const x1 = x * cy - z * sy, z1 = x * sy + z * cy, y1 = y * cp - z1 * sp, z2 = y * sp + z1 * cp + cam.d;
-      n.z2 = z2; if (z2 < 30) { n.vis = false; continue; }
-      const s = FOC / z2; n.s = s; n.sx = cam.ax + x1 * s; n.sy = cam.ay + y1 * s; n.vis = n.sx > -120 && n.sx < W + 120 && n.sy > -120 && n.sy < H + 120;
-    }
-    // scia durante il volo: non cancello del tutto, così resta il movimento
-    if (warp > .05 && !ridotto) { g.globalCompositeOperation = "destination-out"; g.fillStyle = `rgba(0,0,0,${.55 - warp * .3})`; g.fillRect(0, 0, W, H); g.globalCompositeOperation = "source-over"; }
-    else g.clearRect(0, 0, W, H);
-
-    // spazio profondo: nebulose che ruotano con la telecamera
-    if (neb && now - ultimoSfondo > 1500) {   // lo sfondo scorre piano via CSS: la scheda video del PC non lavora
-      ultimoSfondo = now; const off = ((cam.yaw * 260) % 1024 + 1024) % 1024;
-      cv.style.backgroundPosition = `${-off * 1.6}px ${-60 + (cam.pitch - .4) * 200}px`;
-    }
-    g.globalCompositeOperation = "lighter";
-    // stelle di sfondo con parallasse; durante il salto si allungano in strisce
-    const cxs = ax, cys = ay;
-    const quante = ridotto ? Math.min(fondo.length, 140) : fondo.length;
-    for (let qi = 0; qi < quante; qi++) { const s = fondo[qi];
-      const a = s.a + cam.yaw * (.25 + s.l * .2), b = s.b + (cam.pitch - .4) * .5;
-      const ca = Math.cos(a), cb = Math.cos(b); if (ca * cb < -.2) continue;
-      const x = W / 2 + Math.sin(a) * cb * W * .75, y = H / 2 + Math.sin(b) * H * .75;
-      const tw = .55 + .45 * Math.sin(T * 2 + s.tw), al = (.25 + s.l * .2) * tw;
-      if (warp > .05) {
-        const dx = x - cxs, dy = y - cys, L = warp * (18 + s.l * 26);
-        const d = Math.hypot(dx, dy) || 1;
-        g.strokeStyle = `rgba(${s.c},${Math.min(1, al + warp * .5)})`; g.lineWidth = s.s * (.6 + warp);
-        g.beginPath(); g.moveTo(x, y); g.lineTo(x + dx / d * L * (d / 300), y + dy / d * L * (d / 300)); g.stroke();
-      } else { g.fillStyle = `rgba(${s.c},${al})`; g.fillRect(x, y, s.s, s.s); }
-    }
-    // collegamenti dell'albero
-    g.lineWidth = 1;
-    for (const [col, filtro] of (ridotto ? [[`rgba(${ORO},.15)`, n => n.d]] : [[`rgba(${ORO},.15)`, n => n.d], [`rgba(${AZZ},.08)`, n => !n.d]])) {
+  function disegna() {
+    if (!nodi.length) return;
+    proietta();
+    for (const c of [base, over]) { c.width = BW * DPR; c.height = BH * DPR; c.style.width = BW + "px"; c.style.height = BH + "px"; }
+    const g = base.getContext("2d"); g.setTransform(DPR, 0, 0, DPR, 0, 0); g.clearRect(0, 0, BW, BH);
+    g.globalCompositeOperation = "lighter"; g.lineWidth = 1;
+    for (const [col, f] of [["rgba(255,200,90,.16)", n => n.d], ["rgba(90,210,255,.09)", n => !n.d]]) {
       g.strokeStyle = col; g.beginPath();
-      for (const n of nodi) { if (n.par < 0 || !filtro(n)) continue; const P = nodi[n.par]; if (!n.vis && !P.vis) continue; const b = nascita(n, now); if (b <= 0) continue;
-        g.moveTo(P.sx, P.sy); g.lineTo(lerp(P.sx, n.sx, b), lerp(P.sy, n.sy, b)); }
+      for (const n of nodi) { if (n.par < 0 || !f(n) || n.nuovo) continue; const P = nodi[n.par]; g.moveTo(P.bx, P.by); g.lineTo(n.bx, n.by); }
       g.stroke();
     }
-    // attività: pacchetti di luce che partono dal PC verso le cartelle (di più quando pensa)
-    const freq = st === "thinking" ? .45 : st === "speaking" ? .2 : .05;
-    if (nodi.length > 2 && Math.random() < freq * (lite ? .5 : 1) && pacchetti.length < (lite ? 12 : 34)) {
-      const i = (Math.random() * (nodi.length - 1) + 1) | 0; if (nodi[i].d) pacchetti.push({ i, t: 0, v: rnd(.012, .03) });
-    }
-    for (let q = pacchetti.length - 1; q >= 0; q--) {
-      const p = pacchetti[q]; p.t += p.v; const n = nodi[p.i]; if (p.t >= 1 || !n) { pacchetti.splice(q, 1); continue; }
-      const P = nodi[n.par]; if (!P || !n.vis) continue; const x = lerp(P.sx, n.sx, p.t), y = lerp(P.sy, n.sy, p.t);
-      g.drawImage(sprite(st === "thinking" ? ORO : AZZ), x - 6, y - 6, 12, 12);
-    }
-    // percorso fino al punto in cui sta lavorando: raggio di luce
-    if (chain.size) {
-      for (const [w, a] of [[7, .12], [2.2, .9]]) {
-        g.strokeStyle = `rgba(${ORO},${a})`; g.lineWidth = w; g.beginPath();
-        chain.forEach(i => { const n = nodi[i]; if (n.par >= 0) { const P = nodi[n.par]; g.moveTo(P.sx, P.sy); g.lineTo(n.sx, n.sy); } }); g.stroke();
-      }
-      const arr = [...chain].reverse(); const tt = (T * 1.6) % 1;
-      arr.forEach((i, j) => { const n = nodi[i]; if (n.par < 0) return; const P = nodi[n.par], u = (tt + j * .17) % 1; g.drawImage(sprite(BIA), lerp(P.sx, n.sx, u) - 8, lerp(P.sy, n.sy, u) - 8, 16, 16); });
-    }
-    // stelle (cartelle e file)
-    let etichette = 0;
-    g.textAlign = "left";
-    let disegnate = 0; const maxStelle = ridotto ? 350 : 5000;
     for (let i = 1; i < nodi.length; i++) {
-      const n = nodi[i]; if (!n.vis) continue; const b = nascita(n, now); if (b <= 0) continue;
-      if (ridotto && !n.d && n.s < .55 && i !== focus && !chain.has(i) && n.par !== focus) continue;
-      if (++disegnate > maxStelle) break;
-      const isF = i === focus, isT = i === tour && !F, figlioF = bersaglio && n.par === (F ? focus : tour), inChain = chain.has(i);
-      const base = n.d ? (n.depth <= 1 ? 9 : 6) : 3.2;
-      const r = Math.min(n.d ? 7.5 : 4.5, Math.max(1.1, base * n.s * 1.25)) * b * (isF ? 1.8 + Math.sin(T * 5) * .25 : figlioF || isT ? 1.3 : 1);
-      // profondità di campo: le stelle lontane sono più morbide
-      const lont = Math.min(1, Math.max(0, (n.z2 - cam.d) / 900));
-      g.globalAlpha = isF || figlioF || inChain || isT ? 1 : (bersaglio ? .4 : .85) * (1 - lont * .5);
-      g.drawImage(sprite(isF ? BIA : n.d ? ORO : AZZ), n.sx - r * 3.4, n.sy - r * 3.4, r * 6.8, r * 6.8);
-      if (lont > .3 && !ridotto) g.drawImage(sprite(n.d ? ORO : AZZ, true), n.sx - r * 6, n.sy - r * 6, r * 12, r * 12);
-      g.globalAlpha = 1;
-      if (isF || isT) agganciato(n, r, T, isF);
-      const mostra = isF || isT || figlioF || (inChain && n.depth > 0) || (n.d && n.depth <= (bersaglio ? 0 : 2) && n.s > .5 && etichette < (lite ? 14 : 24));
-      if (mostra && etichette < (lite ? 30 : 60)) {
-        etichette++;
-        if (isF || isT) callout(n, r, now, isF);
-        else {
-          g.font = `${n.d ? 700 : 500} ${figlioF ? 11.5 : 11}px "JetBrains Mono", Consolas, monospace`;
-          g.fillStyle = n.d ? `rgba(255,228,160,${figlioF || inChain ? 1 : .78})` : `rgba(180,235,255,${figlioF ? .95 : .7})`;
-          g.fillText((n.d ? "▸ " : "") + n.n.slice(0, 30), n.sx + r + 5, n.sy + 4);
-        }
-      }
+      const n = nodi[i]; if (n.nuovo) continue; const r = (n.d ? (n.depth <= 1 ? 9 : 6.5) : 3.4) * Math.min(1.4, Math.max(.7, n.prof || 1));
+      g.globalAlpha = n.depth > 3 ? .6 : .9; g.drawImage(sprite(n.d ? "255,200,90" : "90,210,255"), n.bx - r * 3, n.by - r * 3, r * 6, r * 6);
     }
-    // il PC: stella centrale con riflessi da lente
-    if (nodi[0] && nodi[0].vis) stellaPC(nodi[0], T, st);
-    // onde d'urto e scintille dell'arrivo
-    for (let q = onde.length - 1; q >= 0; q--) {
-      const o = onde[q]; o.t += .022; if (o.t >= 1) { onde.splice(q, 1); continue; } const n = nodi[o.i]; if (!n || !n.vis || o.t <= 0) continue;
-      g.beginPath(); g.arc(n.sx, n.sy, 10 + o.t * 170, 0, TAU); g.strokeStyle = `rgba(${o.c},${(1 - o.t) * .7})`; g.lineWidth = 3 * (1 - o.t) + .5; g.stroke();
-    }
-    g.fillStyle = "rgba(255,230,170,.9)";
-    for (let q = scintille.length - 1; q >= 0; q--) {
-      const s = scintille[q]; s.life -= .025; if (s.life <= 0) { scintille.splice(q, 1); continue; }
-      s.x += s.vx; s.y += s.vy; s.vx *= .95; s.vy *= .95; g.globalAlpha = s.life; g.fillRect(s.x, s.y, 2, 2);
-    }
-    g.globalAlpha = 1;
-    // arrivo sul bersaglio
-    if (F && !arrivato && cam.vel < 3 && now - focusAt > 400) {
-      arrivato = true; onde.push({ i: focus, t: 0, c: ORO }, { i: focus, t: -.25, c: AZZ });
-      for (let q = 0; q < (lite ? 24 : 60); q++) { const a = rnd(0, TAU), v = rnd(1.5, 6); scintille.push({ x: F.sx, y: F.sy, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: rnd(.5, 1) }); }
-    }
-    // fulmini tra le cartelle mentre pensa
-    if (st === "thinking" && Math.random() < (ridotto ? .08 : .2) && fulmini.length < 3) {
-      const vis = []; for (let i = 1; i < nodi.length && vis.length < 60; i++) if (nodi[i].vis && nodi[i].d) vis.push(nodi[i]);
-      if (vis.length > 2) { const a = vis[(Math.random() * vis.length) | 0]; let b = null, bd = 1e9;
-        for (let q = 0; q < 8; q++) { const c = vis[(Math.random() * vis.length) | 0]; const dd = Math.hypot(c.sx - a.sx, c.sy - a.sy); if (c !== a && dd > 40 && dd < bd) { b = c; bd = dd; } }
-        if (b) fulmini.push({ a, b, life: 1, seme: Math.random() * 1000 }); }
-    }
-    for (let q = fulmini.length - 1; q >= 0; q--) {
-      const f = fulmini[q]; f.life -= .12; if (f.life <= 0) { fulmini.splice(q, 1); continue; }
-      const dx = f.b.sx - f.a.sx, dy = f.b.sy - f.a.sy, L = Math.hypot(dx, dy) || 1, nx = -dy / L, ny = dx / L;
-      for (const [w, al] of [[4, .18], [1.2, .9]]) {
-        g.beginPath(); g.moveTo(f.a.sx, f.a.sy);
-        for (let k = 1; k < 9; k++) { const u = k / 9, j = Math.sin(f.seme + k * 7.3) * L * .09 * Math.sin(u * Math.PI); g.lineTo(f.a.sx + dx * u + nx * j, f.a.sy + dy * u + ny * j); }
-        g.lineTo(f.b.sx, f.b.sy); g.strokeStyle = `rgba(255,225,150,${al * f.life})`; g.lineWidth = w; g.stroke();
-      }
-    }
-    // comete delle notizie: attraversano lo spazio con il titolo
-    for (let q = comete.length - 1; q >= 0; q--) {
-      const c = comete[q], u = (now - c.t0) / c.dur; if (u >= 1) { comete.splice(q, 1); continue; } if (u < 0) continue;
-      const e = u < .5 ? 2 * u * u : 1 - Math.pow(-2 * u + 2, 2) / 2, x = lerp(c.x0, c.x1, e), y = lerp(c.y0, c.y1, e) + Math.sin(u * Math.PI) * c.arco;
-      const ang = Math.atan2(c.y1 - c.y0, c.x1 - c.x0), coda = 140 + 80 * Math.sin(u * Math.PI);
-      const gr = g.createLinearGradient(x, y, x - Math.cos(ang) * coda, y - Math.sin(ang) * coda);
-      gr.addColorStop(0, "rgba(255,240,200,.9)"); gr.addColorStop(.3, "rgba(120,220,255,.35)"); gr.addColorStop(1, "rgba(120,220,255,0)");
-      g.strokeStyle = gr; g.lineWidth = 3; g.beginPath(); g.moveTo(x, y); g.lineTo(x - Math.cos(ang) * coda, y - Math.sin(ang) * coda); g.stroke();
-      g.drawImage(sprite("255,235,190"), x - 14, y - 14, 28, 28);
-      const al = Math.min(1, u * 5, (1 - u) * 4);
-      g.globalAlpha = al; g.font = `600 ${W < 600 ? 11 : 13}px "JetBrains Mono", Consolas, monospace`; g.fillStyle = "#fff8e0";
-      const tx = Math.min(W - 10, Math.max(10, x + 16)); g.textAlign = x > W * .6 ? "right" : "left";
-      g.fillText("📰 " + c.testo.slice(0, W < 600 ? 42 : 80), x > W * .6 ? x - 18 : tx, y - 12);
-      if (c.fonte) { g.font = "500 10px Consolas, monospace"; g.fillStyle = "rgba(120,220,255,.85)"; g.fillText(c.fonte, x > W * .6 ? x - 18 : tx, y + 4); }
-      g.textAlign = "left"; g.globalAlpha = 1;
-    }
-    // lampo dell'ingresso nell'iperspazio
-    if (warp > .5) { g.fillStyle = `rgba(150,220,255,${(warp - .5) * .12})`; g.fillRect(0, 0, W, H); }
-    g.globalCompositeOperation = "source-over";
+    g.globalAlpha = 1; g.globalCompositeOperation = "source-over";
+    g.font = "700 13px 'JetBrains Mono', Consolas, monospace";
+    for (const n of nodi) if (n.d && n.depth >= 1 && n.depth <= 2 && !n.nuovo) { g.fillStyle = n.depth === 1 ? "rgba(255,230,170,.95)" : "rgba(255,225,160,.7)"; g.fillText("▸ " + n.n.slice(0, 26), n.bx + 12, n.by + 4); }
+    const P0 = nodi[0]; pcEl.style.transform = `translate(${P0.bx}px,${P0.by}px)`;
+    pcEl.querySelector("span").textContent = "NODO-01 · " + String(P0.n || "PC").toUpperCase();
+    over.getContext("2d").clearRect(0, 0, over.width, over.height);
+    if (focus == null) riposo(0);
   }
-  function stellaPC(n, T, st) {
-    const col = st === "thinking" ? ORO : st === "listening" ? "120,255,200" : st === "alert" ? "255,160,60" : st === "error" ? "255,70,95" : "140,220,255";
-    const R = Math.min(34, Math.max(14, 28 * n.s)) * (1 + livello * .5 + impulso * .4 + Math.sin(T * 1.6) * .05);
-    impulso *= .94; livello *= .9;
-    g.drawImage(sprite(col, true), n.sx - R * 9, n.sy - R * 9, R * 18, R * 18);
-    g.drawImage(sprite(col), n.sx - R * 3, n.sy - R * 3, R * 6, R * 6);
-    g.drawImage(sprite(BIA), n.sx - R, n.sy - R, R * 2, R * 2);
-    // riflesso anamorfico (striscia orizzontale) e raggi
-    const gr = g.createLinearGradient(n.sx - R * 16, 0, n.sx + R * 16, 0);
-    gr.addColorStop(0, `rgba(${col},0)`); gr.addColorStop(.5, `rgba(${col},.55)`); gr.addColorStop(1, `rgba(${col},0)`);
-    g.fillStyle = gr; g.fillRect(n.sx - R * 16, n.sy - 1.5, R * 32, 3);
-    g.save(); g.translate(n.sx, n.sy); g.rotate(T * .08);
-    for (let k = 0; k < 6; k++) { g.rotate(TAU / 6); const l = R * (4 + (k % 2) * 2.5); const lg = g.createLinearGradient(0, 0, l, 0); lg.addColorStop(0, `rgba(${col},.5)`); lg.addColorStop(1, `rgba(${col},0)`); g.fillStyle = lg; g.fillRect(0, -.8, l, 1.6); }
-    g.restore();
-    // anelli di mira attorno al PC
-    g.lineWidth = 1.2;
-    for (let k = 0; k < 2; k++) { const rr = R * (3.2 + k * 1.3), a0 = T * (k ? -.5 : .35); g.strokeStyle = `rgba(${col},${.5 - k * .2})`; g.beginPath(); g.arc(n.sx, n.sy, rr, a0, a0 + 1.6); g.stroke(); g.beginPath(); g.arc(n.sx, n.sy, rr, a0 + Math.PI, a0 + Math.PI + 1.6); g.stroke(); }
-    // lenti fantasma lungo la diagonale (riflesso cinematografico)
-    const dx = W / 2 - n.sx, dy = H / 2 - n.sy;
-    if (!ridotto) [[.6, 10, .12], [1.2, 22, .07], [1.6, 6, .16]].forEach(([f, rr, a]) => { g.globalAlpha = a; g.drawImage(sprite(col, true), n.sx + dx * f - rr * 2, n.sy + dy * f - rr * 2, rr * 4, rr * 4); });
-    g.globalAlpha = 1;
-    g.font = "700 11px Orbitron, Rajdhani, sans-serif"; g.fillStyle = `rgba(${col},.85)`; g.textAlign = "center";
-    g.fillText("NODO-01 · " + (n.n || "PC").toUpperCase(), n.sx, n.sy + R * 1.7 + 14); g.textAlign = "left";
-  }
-  function agganciato(n, r, T, forte) {
-    for (let q = 0; q < (forte ? 3 : 1); q++) { const rr = r * (3 + q * 1.6) + ((T * 40 + q * 14) % 30); g.beginPath(); g.arc(n.sx, n.sy, rr, 0, TAU); g.strokeStyle = `rgba(${ORO},${(forte ? .5 : .3) - q * .14})`; g.lineWidth = 1.5; g.stroke(); }
-    const L = r * 6; g.beginPath();
-    for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) { const x = n.sx + sx * L, y = n.sy + sy * L; g.moveTo(x, y + -sy * 7); g.lineTo(x, y); g.lineTo(x + -sx * 7, y); }
-    g.strokeStyle = "rgba(255,255,255,.85)"; g.lineWidth = 1.4; g.stroke();
-  }
-  function callout(n, r, now, forte) {   // etichetta da film: linea dalla stella a un riquadro, testo che si scrive
-    const nome = (n.d ? "▣ " : "▤ ") + n.n, k = Math.min(nome.length, Math.floor((now - (forte ? focusAt : tourInizio)) / 28));
-    const testo = nome.slice(0, k) + (k < nome.length ? "▌" : "");
-    const info = `${n.d ? "CARTELLA" : "FILE"} · LIVELLO ${n.depth} · ${n.kids.length} ELEMENTI`;
-    const fs = W < 600 ? (forte ? 13 : 12) : (forte ? 15 : 13);
-    g.font = `700 ${fs}px "JetBrains Mono", Consolas, monospace`; const w = Math.min(W - 16, Math.max(g.measureText(nome).width, W < 600 ? 170 : 200) + 18);
-    const sx = n.sx + r * 2 + 60 + w > W - 6 ? -1 : 1;   // se a destra non c'è posto, il riquadro va a sinistra
-    const x0 = n.sx + sx * r * 2, y0 = n.sy - r * 2, x1 = x0 + sx * 46, y1 = Math.max(40, y0 - 34);
-    const bx = Math.max(6, sx > 0 ? x1 + 14 : x1 - 14 - w);
-    g.strokeStyle = `rgba(${ORO},.8)`; g.lineWidth = 1; g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.lineTo(x1 + sx * 14, y1); g.stroke();
-    g.fillStyle = "rgba(3,14,26,.62)"; g.fillRect(bx, y1 - 30, w, 40);
-    g.strokeStyle = `rgba(${ORO},.55)`; g.strokeRect(bx, y1 - 30, w, 40);
-    g.save(); g.beginPath(); g.rect(bx, y1 - 30, w, 40); g.clip();
-    g.fillStyle = "#fff"; g.fillText(testo, bx + 8, y1 - 13);
-    g.font = "500 9.5px Consolas, monospace"; g.fillStyle = `rgba(${ORO},.95)`; g.fillText(info, bx + 8, y1 + 3); g.restore();
-  }
-  let tourInizio = 0, ultimoSfondo = 0;
-  // regolatore automatico: se il PC fatica, la galassia si alleggerisce da sola
-  const PC_DEBOLE = (navigator.hardwareConcurrency || 4) <= 2;
-  let costo = 0, ridotto = PC_DEBOLE;
-  function nascita(n, now) { if (!n.nato) return 1; const b = (now - n.nato) / 700; return b < 0 ? 0 : b > 1 ? 1 : 1 - Math.pow(1 - b, 3); }
-  function loop(now) {
-    requestAnimationFrame(loop);
-    if (document.hidden || hud.hidden) return;
-    if (!W || cv.clientWidth !== W) { layout(); if (!W) return; }
-    if (!nodi.length) return;
-    const muove = focus != null || tour != null || cam.vel > 1 || stato() !== "idle" || comete.length > 0;
-    const leggero = LITE() || ridotto;
-    const fps = leggero ? (muove ? 15 : 6) : (muove ? 30 : 20);
-    if (now - last < 1000 / fps - 2) return; last = now;
-    // a riposo la telecamera esplora da sola una cartella, poi torna indietro
-    if (focus == null) {
-      if (tour != null && now > tourFine) { tour = null; prossimoTour = now + rnd(14000, 24000); }
-      else if (tour == null && now > prossimoTour && now - ultimaAzione > 20000 && stato() === "idle") {
-        const dirs = nodi.map((n, i) => n.d && n.depth >= 2 && n.kids.length ? i : -1).filter(i => i >= 0);
-        if (dirs.length) { tour = dirs[(Math.random() * dirs.length) | 0]; tourFine = now + 8000; tourInizio = now + 900; }
-      }
-    }
-    const a = performance.now(); draw(now); const c = performance.now() - a;
-    costo = costo * .9 + c * .1;
-    if (!ridotto && costo > 22) { ridotto = true; layout(); }        // troppo pesante: versione leggera
-    // una volta alleggerita resta leggera: niente scatti avanti e indietro
-  }
-  requestAnimationFrame(loop); setTimeout(layout, 60);
 
+  // ---------- telecamera (solo transform: lavora la scheda video) ----------
+  let W = innerWidth, H = innerHeight, focus = null, ultimaAzione = 0, giro = null;
+  const cam = { tx: 0, ty: 0, s: 1 };
+  function ancora(visione) {
+    if (CFG.ancora) return CFG.ancora(visione);
+    if (visione) return [W * .28, H * .5];
+    const box = document.querySelector(".map-area"); const r = box ? box.getBoundingClientRect() : null;
+    return r && r.width ? [r.left + r.width / 2, r.top + r.height * .45] : [W / 2, H * .45];
+  }
+  function muovi(tx, ty, s, ms) {
+    cam.tx = tx; cam.ty = ty; cam.s = s;
+    stage.style.transition = ms ? `transform ${ms}ms cubic-bezier(.65,.02,.2,1)` : "none";
+    stage.style.transform = `translate3d(${tx.toFixed(1)}px,${ty.toFixed(1)}px,0) scale(${s.toFixed(4)})`;
+  }
+  function riposo(ms) {
+    if (!nodi.length) return;
+    const P0 = nodi[0], [ax, ay] = ancora(false);
+    const s = Math.min(W * .95 / BW, H * .92 / BH) * (CFG.zoom || 1);
+    const cx = lerp(P0.bx, BW / 2, .45), cy = lerp(P0.by, BH / 2, .45);
+    muovi(ax - cx * s, ay - cy * s, s, ms);
+  }
+  function suSchermo(n) { return [cam.tx + n.bx * cam.s, cam.ty + n.by * cam.s]; }
+  addEventListener("resize", () => { W = innerWidth; H = innerHeight; if (focus == null) riposo(0); });
+
+  function pulisciFocus() { labels.innerHTML = ""; root.classList.remove("agganciato", "fermo"); const c = lock.querySelector(".gx-call"); if (c) c.remove(); over.getContext("2d").clearRect(0, 0, over.width, over.height); }
+  function percorso(i) {   // il percorso dal PC alla cartella, disegnato una volta sul livello sopra
+    const g = over.getContext("2d"); g.setTransform(DPR, 0, 0, DPR, 0, 0); g.clearRect(0, 0, BW, BH); g.lineCap = "round";
+    for (const [w, a] of [[6, .15], [2, .95]]) { g.strokeStyle = `rgba(255,200,90,${a})`; g.lineWidth = w; g.beginPath(); for (let j = i; nodi[j] && nodi[j].par >= 0; j = nodi[j].par) { const n = nodi[j], P = nodi[n.par]; g.moveTo(P.bx, P.by); g.lineTo(n.bx, n.by); } g.stroke(); }
+  }
+  function aggancia(i, conFigli) {   // dopo il volo: mirino, nome e figli che nascono (elementi animati dalla scheda video)
+    const n = nodi[i]; if (!n) return;
+    const [sx, sy] = suSchermo(n);
+    lock.style.transform = `translate(${sx}px,${sy}px)`; root.classList.add("agganciato");
+    const vecchio = lock.querySelector(".gx-call"); if (vecchio) vecchio.remove();
+    const call = document.createElement("div"); call.className = "gx-call";
+    call.innerHTML = `<b>${n.d ? "▣" : "▤"} ${esc(n.n)}</b><small>${n.d ? "CARTELLA" : "FILE"} · LIVELLO ${n.depth} · ${n.kids.length} ELEMENTI</small>`;
+    if (sx > W - 330) { call.style.left = "auto"; call.style.right = "44px"; } lock.appendChild(call);
+    if (!conFigli) return;
+    n.kids.slice(0, 40).forEach((ki, q) => {
+      const c = nodi[ki], [cx, cy] = suSchermo(c);
+      if (cx < -20 || cy < -20 || cx > W + 20 || cy > H + 20) return;
+      const el = document.createElement("div"); el.className = "gx-dot" + (c.d ? " d" : "");
+      el.style.left = cx + "px"; el.style.top = cy + "px"; el.style.setProperty("--dx", (sx - cx) + "px"); el.style.setProperty("--dy", (sy - cy) + "px"); el.style.animationDelay = (q * 45) + "ms";
+      el.innerHTML = q < 18 ? `<span>${esc(c.n.slice(0, 28))}</span>` : ""; labels.appendChild(el);
+    });
+  }
+
+  // ---------- mappa ----------
+  let caricando = false;
+  async function carica() {
+    if (caricando || nodi.length > 2 || typeof api !== "function") return; caricando = true;
+    try { const d = await api("/mappa"); (d.nodi || []).forEach(n => aggiungi(n.p, n.n, n.d, n.a)); }
+    catch (e) { /* senza mappa la galassia nasce dalle azioni */ }
+    finally { caricando = false; if (!nodi.length) aggiungi("C:\\Users", "PC", true, -1); disegna(); }
+  }
+  if (!CFG.contenitore) new MutationObserver(() => { if (!hud.hidden) { W = innerWidth; H = innerHeight; if (nodi.length < 3) carica(); else riposo(0); } }).observe(hud, { attributes: true, attributeFilter: ["hidden"] });
+
+  // a riposo, ogni tanto la telecamera va a guardare una cartella (un solo movimento, niente calcoli continui)
+  setInterval(() => {
+    if (focus != null || document.hidden || hud.hidden || Date.now() - ultimaAzione < 30000 || !nodi.length) return;
+    if (/\bs-(thinking|listening|speaking)\b/.test(document.body.className) || Math.random() < .5) return;
+    const dirs = nodi.map((n, i) => n.d && n.depth >= 2 && n.kids.length ? i : -1).filter(i => i >= 0); if (!dirs.length) return;
+    giro = dirs[(Math.random() * dirs.length) | 0]; const n = nodi[giro], [ax, ay] = ancora(false), s = Math.min(1.4, cam.s * 2.2);
+    root.classList.add("fermo"); muovi(ax - n.bx * s, ay - n.by * s, s, 2600);
+    setTimeout(() => { if (focus == null && giro != null) aggancia(giro, false); }, 2700);
+    setTimeout(() => { if (focus == null) { giro = null; pulisciFocus(); riposo(2600); } }, 9000);
+  }, 45000);
+
+  function lampo() { pcEl.classList.remove("flash"); void pcEl.offsetWidth; pcEl.classList.add("flash"); }
   window.GALASSIA = {
     /* vola sul percorso dell'azione; restituisce dopo quanti ms mostrare il pannello */
     vai(d) {
       if (!d || !d.path || !nodi.length) return 0;
       const p = String(d.path).replace(/^avvio |^python |^registro /, "");
       if (!/^[a-z]:\\|^\\\\|^\//i.test(p)) return 0;
-      const isDir = d.tipo === "cartella" || d.tipo === "ricerca";
+      const isDir = d.tipo === "cartella" || d.tipo === "ricerca", prima = nodi.length;
       const i = trovaOCrea(p, isDir);
-      const lontano = focus == null || Math.hypot(nodi[i].x - cam.x, nodi[i].y - cam.y, nodi[i].z - cam.z) > 250;
-      focus = i; focusAt = performance.now(); arrivato = false; tour = null; ultimaAzione = performance.now();
-      chain = new Set(); for (let j = i; j >= 0; j = nodi[j].par) chain.add(j);
-      if (d.tipo === "cartella" && d.items) {   // i file della cartella nascono come nuove stelle
-        const ora = performance.now() + (lontano ? 1400 : 400);
-        d.items.slice(0, 70).forEach((x, q) => aggiungi(p.replace(/\\+$/, "") + "\\" + x.n, x.n, !!x.d, i, ora + q * 35));
-      }
-      if (d.tipo === "ricerca" && d.items) d.items.slice(0, 30).forEach(s => { const pp = String(s).split(/:\d+\s/)[0]; if (/^[a-z]:\\/i.test(pp)) trovaOCrea(pp, false); });
-      return lontano ? 1700 : 700;
+      if (d.tipo === "cartella" && d.items) d.items.slice(0, 60).forEach(x => { const j = aggiungi(p.replace(/\\+$/, "") + "\\" + x.n, x.n, !!x.d, i); if (j >= prima) nodi[j].nuovo = true; });
+      const lontano = focus !== i;
+      focus = i; giro = null; ultimaAzione = Date.now(); pulisciFocus(); root.classList.add("fermo");
+      if (nodi.length !== prima) disegna();
+      const n = nodi[i], [ax, ay] = ancora(true);
+      const s = Math.min(n.d ? 1.6 : 2.2, Math.max(cam.s * 2.6, .9)) * (CFG.zoom ? Math.sqrt(CFG.zoom) : 1);
+      percorso(i);
+      if (lontano) { root.classList.remove("warp"); void root.offsetWidth; root.classList.add("warp"); setTimeout(() => root.classList.remove("warp"), 1600); }
+      const ms = lontano ? 1500 : 700;
+      muovi(ax - n.bx * s, ay - n.by * s, s, ms);
+      setTimeout(() => { if (focus === i) aggancia(i, d.tipo === "cartella"); }, ms);
+      lampo();
+      return ms;
     },
-    torna() { focus = null; chain = new Set(); misura(); ultimaAzione = performance.now(); },
-    cometa(testo, fonte) {   // una notizia attraversa la galassia
-      if (!testo) return; const da = Math.random() < .5, y0 = rnd(H * .12, H * .55);
-      comete.push({ testo: String(testo), fonte: fonte || "", t0: performance.now() + comete.length * 1800, dur: 7000, x0: da ? -40 : W + 40, x1: da ? W + 40 : -40, y0, y1: y0 + rnd(-H * .15, H * .2), arco: rnd(-40, 40) });
-      impulso = Math.max(impulso, .5);
+    torna() {
+      focus = null; ultimaAzione = Date.now(); pulisciFocus();
+      if (nodi.some(n => n.nuovo)) { nodi.forEach(n => n.nuovo = false); disegna(); }
+      riposo(1800);
     },
     carica(dati) {   // il telefono passa la mappa ricevuta dal PC
-      if (dati && dati.nodi && dati.nodi.length) { nodi.length = 0; perPath.clear(); dati.nodi.forEach(n => aggiungi(n.p, n.n, n.d, n.a, 0)); misura(); return true; }
+      if (dati && dati.nodi && dati.nodi.length) { nodi.length = 0; perPath.clear(); dati.nodi.forEach(n => aggiungi(n.p, n.n, n.d, n.a)); disegna(); return true; }
       return carica();
     },
-    radice(nome) { if (!nodi.length) { aggiungi("C:\\" + (nome || "PC"), nome || "PC", true, -1); misura(); } },
+    radice(nome) { if (!nodi.length) { aggiungi("C:\\" + (nome || "PC"), nome || "PC", true, -1); disegna(); } },
+    cometa(testo, fonte) {
+      if (!testo) return; const da = Math.random() < .5, y0 = rnd(H * .12, H * .5), y1 = y0 + rnd(-H * .12, H * .18);
+      const x0 = da ? -60 : W + 60, x1 = da ? W + 60 : -60, a = Math.atan2(y1 - y0, x1 - x0) * 180 / Math.PI;
+      const dur = W < 600 ? 6 : 8, ritardo = cometeEl.children.length * 1.6;
+      const el = document.createElement("div"); el.className = "gx-comet" + (da ? "" : " sx");
+      el.style.cssText = `--x0:${x0}px;--y0:${y0}px;--x1:${x1}px;--y1:${y1}px;--a:${a}deg;--d:${dur}s;transform:translate(${x0}px,${y0}px);animation-delay:${ritardo}s`;
+      el.querySelector && (el.innerHTML = `<i></i><u></u><span style="animation-delay:${ritardo}s">📰 ${esc(String(testo).slice(0, W < 600 ? 44 : 90))}<small>${esc(fonte || "")}</small></span>`);
+      cometeEl.appendChild(el); setTimeout(() => el.remove(), (dur + ritardo) * 1000 + 500);
+      lampo();
+    },
     get nodi() { return nodi.length; },
   };
-  // senza l'occhio, il resto dell'interfaccia parla con la stella del PC
+  // il resto dell'interfaccia parla con la stella del PC
   if (!window.NEURAL) window.NEURAL = {
-    flash() { impulso = 1; }, set level(v) { livello = Math.max(livello, Math.min(1, v || 0)); }, get level() { return livello; },
-    relayout: layout, look() {},
-    beam(x, y) { impulso = Math.max(impulso, .6); },
-    core() { const n = nodi[0]; return n && n.vis ? { x: n.sx, y: n.sy, r: 40 } : { x: W / 2, y: H * .42, r: 40 }; },
+    flash: lampo, level: 0, relayout() { W = innerWidth; H = innerHeight; if (focus == null) riposo(0); }, look() {}, beam() {},
+    core() { const r = pcEl.getBoundingClientRect(); return { x: r.left, y: r.top, r: 40 }; },
   };
+  setTimeout(() => { if (!nodi.length && CFG.contenitore) window.GALASSIA.radice("PC"); }, 50);
 })();
