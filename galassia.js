@@ -83,6 +83,7 @@
     // polvere
     for (let i = 0; i < 900; i++) { x.fillStyle = `rgba(200,225,255,${rnd(.03, .18)})`; x.fillRect(rnd(0, 1024), rnd(0, 640), 1, 1); }
     neb = c;
+    try { cv.style.backgroundImage = `url(${c.toDataURL("image/jpeg", .8)})`; cv.style.backgroundSize = "auto 125%"; cv.style.backgroundRepeat = "repeat-x"; cv.style.transition = "background-position 1.6s linear"; } catch {}
   }
   // stelle di sfondo su una sfera lontana (tre strati)
   const fondo = [];
@@ -92,7 +93,7 @@
   }
 
   function layout() {
-    DPR = LITE() ? 1 : Math.min(1.5, devicePixelRatio || 1);
+    DPR = LITE() || ridotto ? 1 : Math.min(1.5, devicePixelRatio || 1);
     W = cv.clientWidth; H = cv.clientHeight; if (!W) return; cv.width = W * DPR; cv.height = H * DPR; g.setTransform(DPR, 0, 0, DPR, 0, 0);
     if (!neb) nebulose(); if (!fondo.length) stelleFondo();
   }
@@ -130,20 +131,19 @@
       const s = FOC / z2; n.s = s; n.sx = cam.ax + x1 * s; n.sy = cam.ay + y1 * s; n.vis = n.sx > -120 && n.sx < W + 120 && n.sy > -120 && n.sy < H + 120;
     }
     // scia durante il volo: non cancello del tutto, così resta il movimento
-    if (warp > .05) { g.globalCompositeOperation = "destination-out"; g.fillStyle = `rgba(0,0,0,${.55 - warp * .3})`; g.fillRect(0, 0, W, H); g.globalCompositeOperation = "source-over"; }
+    if (warp > .05 && !ridotto) { g.globalCompositeOperation = "destination-out"; g.fillStyle = `rgba(0,0,0,${.55 - warp * .3})`; g.fillRect(0, 0, W, H); g.globalCompositeOperation = "source-over"; }
     else g.clearRect(0, 0, W, H);
 
     // spazio profondo: nebulose che ruotano con la telecamera
-    if (neb) {
-      const off = ((cam.yaw * 260) % 1024 + 1024) % 1024, sc = Math.max(W / 1024, H / 640) * 1.25, yo = (cam.pitch - .4) * 300;
-      g.globalAlpha = .9;
-      for (let k = -1; k <= 1; k++) g.drawImage(neb, (k * 1024 - off) * sc + W / 2 - 512 * sc * .2, -80 * sc + yo, 1024 * sc, 640 * sc);
-      g.globalAlpha = 1;
+    if (neb && now - ultimoSfondo > 1500) {   // lo sfondo scorre piano via CSS: la scheda video del PC non lavora
+      ultimoSfondo = now; const off = ((cam.yaw * 260) % 1024 + 1024) % 1024;
+      cv.style.backgroundPosition = `${-off * 1.6}px ${-60 + (cam.pitch - .4) * 200}px`;
     }
     g.globalCompositeOperation = "lighter";
     // stelle di sfondo con parallasse; durante il salto si allungano in strisce
     const cxs = ax, cys = ay;
-    for (const s of fondo) {
+    const quante = ridotto ? Math.min(fondo.length, 140) : fondo.length;
+    for (let qi = 0; qi < quante; qi++) { const s = fondo[qi];
       const a = s.a + cam.yaw * (.25 + s.l * .2), b = s.b + (cam.pitch - .4) * .5;
       const ca = Math.cos(a), cb = Math.cos(b); if (ca * cb < -.2) continue;
       const x = W / 2 + Math.sin(a) * cb * W * .75, y = H / 2 + Math.sin(b) * H * .75;
@@ -157,7 +157,7 @@
     }
     // collegamenti dell'albero
     g.lineWidth = 1;
-    for (const [col, filtro] of [[`rgba(${ORO},.15)`, n => n.d], [`rgba(${AZZ},.08)`, n => !n.d]]) {
+    for (const [col, filtro] of (ridotto ? [[`rgba(${ORO},.15)`, n => n.d]] : [[`rgba(${ORO},.15)`, n => n.d], [`rgba(${AZZ},.08)`, n => !n.d]])) {
       g.strokeStyle = col; g.beginPath();
       for (const n of nodi) { if (n.par < 0 || !filtro(n)) continue; const P = nodi[n.par]; if (!n.vis && !P.vis) continue; const b = nascita(n, now); if (b <= 0) continue;
         g.moveTo(P.sx, P.sy); g.lineTo(lerp(P.sx, n.sx, b), lerp(P.sy, n.sy, b)); }
@@ -185,8 +185,11 @@
     // stelle (cartelle e file)
     let etichette = 0;
     g.textAlign = "left";
+    let disegnate = 0; const maxStelle = ridotto ? 350 : 5000;
     for (let i = 1; i < nodi.length; i++) {
       const n = nodi[i]; if (!n.vis) continue; const b = nascita(n, now); if (b <= 0) continue;
+      if (ridotto && !n.d && n.s < .55 && i !== focus && !chain.has(i) && n.par !== focus) continue;
+      if (++disegnate > maxStelle) break;
       const isF = i === focus, isT = i === tour && !F, figlioF = bersaglio && n.par === (F ? focus : tour), inChain = chain.has(i);
       const base = n.d ? (n.depth <= 1 ? 9 : 6) : 3.2;
       const r = Math.min(n.d ? 7.5 : 4.5, Math.max(1.1, base * n.s * 1.25)) * b * (isF ? 1.8 + Math.sin(T * 5) * .25 : figlioF || isT ? 1.3 : 1);
@@ -194,7 +197,7 @@
       const lont = Math.min(1, Math.max(0, (n.z2 - cam.d) / 900));
       g.globalAlpha = isF || figlioF || inChain || isT ? 1 : (bersaglio ? .4 : .85) * (1 - lont * .5);
       g.drawImage(sprite(isF ? BIA : n.d ? ORO : AZZ), n.sx - r * 3.4, n.sy - r * 3.4, r * 6.8, r * 6.8);
-      if (lont > .3) g.drawImage(sprite(n.d ? ORO : AZZ, true), n.sx - r * 6, n.sy - r * 6, r * 12, r * 12);
+      if (lont > .3 && !ridotto) g.drawImage(sprite(n.d ? ORO : AZZ, true), n.sx - r * 6, n.sy - r * 6, r * 12, r * 12);
       g.globalAlpha = 1;
       if (isF || isT) agganciato(n, r, T, isF);
       const mostra = isF || isT || figlioF || (inChain && n.depth > 0) || (n.d && n.depth <= (bersaglio ? 0 : 2) && n.s > .5 && etichette < (lite ? 14 : 24));
@@ -249,7 +252,7 @@
     for (let k = 0; k < 2; k++) { const rr = R * (3.2 + k * 1.3), a0 = T * (k ? -.5 : .35); g.strokeStyle = `rgba(${col},${.5 - k * .2})`; g.beginPath(); g.arc(n.sx, n.sy, rr, a0, a0 + 1.6); g.stroke(); g.beginPath(); g.arc(n.sx, n.sy, rr, a0 + Math.PI, a0 + Math.PI + 1.6); g.stroke(); }
     // lenti fantasma lungo la diagonale (riflesso cinematografico)
     const dx = W / 2 - n.sx, dy = H / 2 - n.sy;
-    [[.6, 10, .12], [1.2, 22, .07], [1.6, 6, .16]].forEach(([f, rr, a]) => { g.globalAlpha = a; g.drawImage(sprite(col, true), n.sx + dx * f - rr * 2, n.sy + dy * f - rr * 2, rr * 4, rr * 4); });
+    if (!ridotto) [[.6, 10, .12], [1.2, 22, .07], [1.6, 6, .16]].forEach(([f, rr, a]) => { g.globalAlpha = a; g.drawImage(sprite(col, true), n.sx + dx * f - rr * 2, n.sy + dy * f - rr * 2, rr * 4, rr * 4); });
     g.globalAlpha = 1;
     g.font = "700 11px Orbitron, Rajdhani, sans-serif"; g.fillStyle = `rgba(${col},.85)`; g.textAlign = "center";
     g.fillText("NODO-01 · " + (n.n || "PC").toUpperCase(), n.sx, n.sy + R * 1.7 + 14); g.textAlign = "left";
@@ -276,7 +279,10 @@
     g.fillStyle = "#fff"; g.fillText(testo, bx + 8, y1 - 13);
     g.font = "500 9.5px Consolas, monospace"; g.fillStyle = `rgba(${ORO},.95)`; g.fillText(info, bx + 8, y1 + 3); g.restore();
   }
-  let tourInizio = 0;
+  let tourInizio = 0, ultimoSfondo = 0;
+  // regolatore automatico: se il PC fatica, la galassia si alleggerisce da sola
+  const PC_DEBOLE = (navigator.hardwareConcurrency || 4) <= 2;
+  let costo = 0, ridotto = PC_DEBOLE;
   function nascita(n, now) { if (!n.nato) return 1; const b = (now - n.nato) / 700; return b < 0 ? 0 : b > 1 ? 1 : 1 - Math.pow(1 - b, 3); }
   function loop(now) {
     requestAnimationFrame(loop);
@@ -284,7 +290,8 @@
     if (!W || cv.clientWidth !== W) { layout(); if (!W) return; }
     if (!nodi.length) return;
     const muove = focus != null || tour != null || cam.vel > 1 || stato() !== "idle";
-    const fps = LITE() ? (muove ? 24 : 16) : (muove ? 40 : 28);
+    const leggero = LITE() || ridotto;
+    const fps = leggero ? (muove ? 15 : 6) : (muove ? 30 : 20);
     if (now - last < 1000 / fps - 2) return; last = now;
     // a riposo la telecamera esplora da sola una cartella, poi torna indietro
     if (focus == null) {
@@ -294,7 +301,10 @@
         if (dirs.length) { tour = dirs[(Math.random() * dirs.length) | 0]; tourFine = now + 8000; tourInizio = now + 900; }
       }
     }
-    draw(now);
+    const a = performance.now(); draw(now); const c = performance.now() - a;
+    costo = costo * .9 + c * .1;
+    if (!ridotto && costo > 22) { ridotto = true; layout(); }        // troppo pesante: versione leggera
+    // una volta alleggerita resta leggera: niente scatti avanti e indietro
   }
   requestAnimationFrame(loop); setTimeout(layout, 60);
 
