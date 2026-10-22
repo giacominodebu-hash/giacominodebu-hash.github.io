@@ -133,6 +133,8 @@ pre{position:relative;font-family:var(--f-mono);font-size:12px;line-height:1.5;b
     <button type="button" class="ib mic" id="micBtn" title="Parla con JARVIS" aria-label="Parla con JARVIS">🎙</button>
     <button type="button" class="ib mic" id="photoBtn" title="Analizza un grafico" aria-label="Allega un grafico">📷</button>
     <input type="file" id="photo" accept="image/*" hidden>
+    <button type="button" class="ib mic" id="fileBtn" title="Manda un file al PC" aria-label="Manda un file al PC">📎</button>
+    <input type="file" id="fileIn" hidden>
     <textarea id="msg" rows="1" placeholder="Scrivi o di' «Hey Jarvis»…" aria-label="Messaggio per JARVIS"></textarea>
     <button class="send" id="send" type="submit">INVIA</button>
   </form>
@@ -770,9 +772,9 @@ async function pcSend(obj) {
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, PC.key, enc.encode(JSON.stringify(obj))));
   const all = new Uint8Array(12 + ct.length); all.set(iv); all.set(ct, 12);
-  const blob = b64e(all), pid = rid(), n = Math.max(1, Math.ceil(blob.length / 3500));
-  for (let i = 0; i < n; i++) { const r = await fetch(NTFY + PC.cmd, { method: "POST", body: JSON.stringify({ p: pid, i, n, d: blob.slice(i * 3500, (i + 1) * 3500) }) });
-    if (!r.ok) throw new Error(r.status === 429 ? "troppi messaggi oggi sul servizio gratuito ntfy, riprova più tardi" : "rete " + r.status); }
+  // un messaggio solo: sopra i 4 KB ntfy lo trasforma in allegato (fino a 2 MB), così passano anche i file e si consumano meno messaggi
+  const r = await fetch(NTFY + PC.cmd, { method: "POST", body: JSON.stringify({ p: rid(), i: 0, n: 1, d: b64e(all) }) });
+  if (!r.ok) throw new Error(r.status === 429 ? "troppi messaggi oggi sul servizio gratuito ntfy, riprova più tardi" : r.status === 413 ? "file troppo grande (massimo 1 MB)" : "rete " + r.status);
   return obj.id;
 }
 async function pcIncoming(wrapper) {
@@ -780,18 +782,25 @@ async function pcIncoming(wrapper) {
   let blob = w.d;
   if (w.n > 1) { const box = PC.parts[w.p] = PC.parts[w.p] || {}; box[w.i] = w.d; if (Object.keys(box).length < w.n) return; blob = Array.from({ length: w.n }, (_, i) => box[i]).join(""); delete PC.parts[w.p]; }
   let m; try { const raw = b64d(blob); m = JSON.parse(dec.decode(await crypto.subtle.decrypt({ name: "AES-GCM", iv: raw.slice(0, 12) }, PC.key, raw.slice(12)))); } catch { return; }
-  if (Math.abs(Date.now() - m.ts) > 15 * 60e3 || PC.seen.has(m.id)) return; PC.seen.add(m.id);
+  const vecchio = (m.k === "avviso" ? 12 * 3600e3 : 15 * 60e3);   // gli avvisi del PC valgono anche se apro l'app ore dopo
+  if (Math.abs(Date.now() - m.ts) > vecchio || PC.seen.has(m.id)) return; PC.seen.add(m.id);
   if (m.k === "pong") { PC.online = true; if (!mode) setState(null); const wt = PC.waits["ping"]; if (wt) wt.ok(m); return; }
   const wt = PC.waits[m.re];
   if (m.k === "ack") { if (wt) wt.ack(); return; }
   if (wt) { wt.ok(m); return; }
   if (m.k === "visione") { if (window.VISORE) window.VISORE.mostra(m); return; }
+  if (m.k === "avviso") { pcAvviso(m); return; }
+  if (m.k === "immagine") { const t = addMsg("j", m.titolo || "Dal PC", `data:${m.mime || "image/jpeg"};base64,${m.b64}`); const im = t.querySelector("img"); if (im) { im.alt = m.titolo || "Schermata del PC"; im.onclick = () => window.open(im.src, "_blank"); } return; }
+  if (m.k === "file") { pcFile(m); return; }
   if (m.k === "reply") showPcReply(m, true);
 }
 function pcConnect() {
   if (PC.es) PC.es.close();
   const es = new EventSource(`${NTFY}${PC.rep}/sse?since=${encodeURIComponent(PC.since)}`); PC.es = es;
-  es.onmessage = e => { let ev; try { ev = JSON.parse(e.data); } catch { return; } if (ev.event !== "message") return; PC.since = ev.id; LS.set("pcsince", ev.id); pcIncoming(ev.message); };
+  es.onmessage = async e => { let ev; try { ev = JSON.parse(e.data); } catch { return; } if (ev.event !== "message") return; PC.since = ev.id; LS.set("pcsince", ev.id);
+    if (ev.attachment && String(ev.attachment.url || "").startsWith("https://ntfy.sh/file/")) {   // messaggio grande (schermata, file): è un allegato
+      try { pcIncoming(await (await fetch(ev.attachment.url)).text()); } catch {} return; }
+    pcIncoming(ev.message); };
   es.onerror = () => { if (PC.es !== es) return; es.close(); PC.es = null; setTimeout(() => { if (PC.on && !PC.es && !document.hidden) pcConnect(); }, 3000); };
 }
 function pcWait(id, ackMs = 25000, totalMs = 20 * 60e3) {
@@ -808,6 +817,25 @@ async function pcPing() {
   if (!PC.es) pcConnect();
   try { const p = pcWait("ping", 15000, 15000); await pcSend({ k: "ping" }); await p; PC.online = true; } catch { PC.online = false; }
   if (!mode) setState(null); return PC.online;
+}
+function pcAvviso(m) {   // avviso spontaneo del PC: bot caduto, allarme, promemoria, rapporto del mattino
+  addMsg("j", m.testo || "");
+  try { navigator.vibrate && navigator.vibrate(m.livello === "info" ? 120 : [200, 100, 200]); } catch {}
+  try { if ("Notification" in window && Notification.permission === "granted" && document.hidden) new Notification("J.A.R.V.I.S.", { body: String(m.testo || "").slice(0, 180) }); } catch {}
+  if (!busy && m.livello !== "info") { try { speak(m.voce || m.testo); } catch {} }
+}
+function pcFile(m) {
+  const bin = b64d(m.b64 || ""), url = URL.createObjectURL(new Blob([bin], { type: m.mime || "application/octet-stream" }));
+  const t = addMsg("j", `📎 ${m.nome} (${Math.max(1, Math.round(bin.length / 1024))} KB) dal PC`);
+  const a = document.createElement("a"); a.href = url; a.download = m.nome || "file"; a.className = "say"; a.textContent = "⬇ SCARICA"; a.style.display = "inline-block"; a.style.marginLeft = "8px"; t.appendChild(a);
+  if (/^image\//.test(m.mime || "")) { const i = document.createElement("img"); i.src = url; i.alt = m.nome; t.appendChild(i); }
+}
+async function mandaFileAlPc(f) {
+  if (!f) return;
+  if (f.size > 1000000) { addMsg("s", "Il file è troppo grande: il ponte gratuito porta al massimo 1 MB."); return; }
+  if (!PC.on || !(await pcSetup())) { addMsg("s", "Prima collega il PC (codice di abbinamento)."); return; }
+  const buf = new Uint8Array(await f.arrayBuffer());
+  await pcRequest({ k: "file_put", nome: f.name, b64: b64e(buf) }, `📎 Mando al PC: ${f.name}`);
 }
 function showPcReply(m, late) {
   const text = (m.reply || "").trim() || "Fatto, signore.";
@@ -971,6 +999,8 @@ $("msg").addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey
 $("bar").addEventListener("submit", e => { e.preventDefault(); ask(); });
 document.querySelectorAll(".chip").forEach(c => c.onclick = () => { const t = c.textContent; if (t.endsWith("…")) { $("msg").value = t.slice(0, -1); autosize(); $("msg").focus(); } else ask(t); });
 $("photoBtn").onclick = () => $("photo").click();
+$("fileBtn").onclick = () => { try { if ("Notification" in window && Notification.permission === "default") Notification.requestPermission(); } catch {} $("fileIn").click(); };
+$("fileIn").onchange = () => { const f = $("fileIn").files[0]; $("fileIn").value = ""; mandaFileAlPc(f).catch(e => addMsg("s", "Invio non riuscito: " + e.message)); };
 $("photo").onchange = () => { const f = $("photo").files[0]; if (!f) return; pendingImage = f; $("photoBtn").textContent = "✓"; $("msg").placeholder = "Cosa vuoi sapere di questo grafico?"; $("photo").value = ""; };
 $("voiceBtn").onclick = () => { CFG.voice = !CFG.voice; LS.set("voice", CFG.voice); $("voiceBtn").setAttribute("aria-pressed", String(CFG.voice)); $("voiceBtn").textContent = CFG.voice ? "🔊" : "🔇"; if (!CFG.voice) stopSpeaking(); };
 const tick = () => { $("clock").textContent = new Date().toLocaleString("it-IT", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }); };
@@ -1004,7 +1034,7 @@ window.GALASSIA_CFG = { contenitore: "body", zoom: 1.7, ancora(visione) {
 } };
 window.VISORE_CFG = { contenitore: "body" };
 </script>
-<script src="galassia.js?v=fluida1"></script>
+<script src="galassia.js?v=fluida2"></script>
 <script src="visore.js"></script>
 <script>
 /* Mark V: la mappa delle cartelle arriva dal PC (una volta al giorno, poi resta nel telefono) */
