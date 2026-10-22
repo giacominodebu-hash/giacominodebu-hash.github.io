@@ -17,7 +17,7 @@
   let focus = null, focusAt = 0, arrivato = false, chain = new Set(), t0 = performance.now(), last = 0;
   let tour = null, tourFine = 0, prossimoTour = performance.now() + 15000, ultimaAzione = 0;
   const cam = { x: 0, y: 0, z: 0, d: 2400, yaw: 0, pitch: .42, ax: 0, ay: 0, px: 0, py: 0, pz: 0, pd: 2400, vel: 0 };
-  const onde = [], scintille = [], pacchetti = [];
+  const onde = [], scintille = [], pacchetti = [], comete = [], fulmini = [];
   let livello = 0, impulso = 0;
   const key = p => String(p || "").replace(/\//g, "\\").replace(/\\+$/, "").toLowerCase();
 
@@ -229,6 +229,38 @@
       arrivato = true; onde.push({ i: focus, t: 0, c: ORO }, { i: focus, t: -.25, c: AZZ });
       for (let q = 0; q < (lite ? 24 : 60); q++) { const a = rnd(0, TAU), v = rnd(1.5, 6); scintille.push({ x: F.sx, y: F.sy, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: rnd(.5, 1) }); }
     }
+    // fulmini tra le cartelle mentre pensa
+    if (st === "thinking" && Math.random() < (ridotto ? .08 : .2) && fulmini.length < 3) {
+      const vis = []; for (let i = 1; i < nodi.length && vis.length < 60; i++) if (nodi[i].vis && nodi[i].d) vis.push(nodi[i]);
+      if (vis.length > 2) { const a = vis[(Math.random() * vis.length) | 0]; let b = null, bd = 1e9;
+        for (let q = 0; q < 8; q++) { const c = vis[(Math.random() * vis.length) | 0]; const dd = Math.hypot(c.sx - a.sx, c.sy - a.sy); if (c !== a && dd > 40 && dd < bd) { b = c; bd = dd; } }
+        if (b) fulmini.push({ a, b, life: 1, seme: Math.random() * 1000 }); }
+    }
+    for (let q = fulmini.length - 1; q >= 0; q--) {
+      const f = fulmini[q]; f.life -= .12; if (f.life <= 0) { fulmini.splice(q, 1); continue; }
+      const dx = f.b.sx - f.a.sx, dy = f.b.sy - f.a.sy, L = Math.hypot(dx, dy) || 1, nx = -dy / L, ny = dx / L;
+      for (const [w, al] of [[4, .18], [1.2, .9]]) {
+        g.beginPath(); g.moveTo(f.a.sx, f.a.sy);
+        for (let k = 1; k < 9; k++) { const u = k / 9, j = Math.sin(f.seme + k * 7.3) * L * .09 * Math.sin(u * Math.PI); g.lineTo(f.a.sx + dx * u + nx * j, f.a.sy + dy * u + ny * j); }
+        g.lineTo(f.b.sx, f.b.sy); g.strokeStyle = `rgba(255,225,150,${al * f.life})`; g.lineWidth = w; g.stroke();
+      }
+    }
+    // comete delle notizie: attraversano lo spazio con il titolo
+    for (let q = comete.length - 1; q >= 0; q--) {
+      const c = comete[q], u = (now - c.t0) / c.dur; if (u >= 1) { comete.splice(q, 1); continue; } if (u < 0) continue;
+      const e = u < .5 ? 2 * u * u : 1 - Math.pow(-2 * u + 2, 2) / 2, x = lerp(c.x0, c.x1, e), y = lerp(c.y0, c.y1, e) + Math.sin(u * Math.PI) * c.arco;
+      const ang = Math.atan2(c.y1 - c.y0, c.x1 - c.x0), coda = 140 + 80 * Math.sin(u * Math.PI);
+      const gr = g.createLinearGradient(x, y, x - Math.cos(ang) * coda, y - Math.sin(ang) * coda);
+      gr.addColorStop(0, "rgba(255,240,200,.9)"); gr.addColorStop(.3, "rgba(120,220,255,.35)"); gr.addColorStop(1, "rgba(120,220,255,0)");
+      g.strokeStyle = gr; g.lineWidth = 3; g.beginPath(); g.moveTo(x, y); g.lineTo(x - Math.cos(ang) * coda, y - Math.sin(ang) * coda); g.stroke();
+      g.drawImage(sprite("255,235,190"), x - 14, y - 14, 28, 28);
+      const al = Math.min(1, u * 5, (1 - u) * 4);
+      g.globalAlpha = al; g.font = `600 ${W < 600 ? 11 : 13}px "JetBrains Mono", Consolas, monospace`; g.fillStyle = "#fff8e0";
+      const tx = Math.min(W - 10, Math.max(10, x + 16)); g.textAlign = x > W * .6 ? "right" : "left";
+      g.fillText("📰 " + c.testo.slice(0, W < 600 ? 42 : 80), x > W * .6 ? x - 18 : tx, y - 12);
+      if (c.fonte) { g.font = "500 10px Consolas, monospace"; g.fillStyle = "rgba(120,220,255,.85)"; g.fillText(c.fonte, x > W * .6 ? x - 18 : tx, y + 4); }
+      g.textAlign = "left"; g.globalAlpha = 1;
+    }
     // lampo dell'ingresso nell'iperspazio
     if (warp > .5) { g.fillStyle = `rgba(150,220,255,${(warp - .5) * .12})`; g.fillRect(0, 0, W, H); }
     g.globalCompositeOperation = "source-over";
@@ -289,7 +321,7 @@
     if (document.hidden || hud.hidden) return;
     if (!W || cv.clientWidth !== W) { layout(); if (!W) return; }
     if (!nodi.length) return;
-    const muove = focus != null || tour != null || cam.vel > 1 || stato() !== "idle";
+    const muove = focus != null || tour != null || cam.vel > 1 || stato() !== "idle" || comete.length > 0;
     const leggero = LITE() || ridotto;
     const fps = leggero ? (muove ? 15 : 6) : (muove ? 30 : 20);
     if (now - last < 1000 / fps - 2) return; last = now;
@@ -327,6 +359,11 @@
       return lontano ? 1700 : 700;
     },
     torna() { focus = null; chain = new Set(); misura(); ultimaAzione = performance.now(); },
+    cometa(testo, fonte) {   // una notizia attraversa la galassia
+      if (!testo) return; const da = Math.random() < .5, y0 = rnd(H * .12, H * .55);
+      comete.push({ testo: String(testo), fonte: fonte || "", t0: performance.now() + comete.length * 1800, dur: 7000, x0: da ? -40 : W + 40, x1: da ? W + 40 : -40, y0, y1: y0 + rnd(-H * .15, H * .2), arco: rnd(-40, 40) });
+      impulso = Math.max(impulso, .5);
+    },
     carica(dati) {   // il telefono passa la mappa ricevuta dal PC
       if (dati && dati.nodi && dati.nodi.length) { nodi.length = 0; perPath.clear(); dati.nodi.forEach(n => aggiungi(n.p, n.n, n.d, n.a, 0)); misura(); return true; }
       return carica();
