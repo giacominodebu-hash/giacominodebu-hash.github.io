@@ -782,7 +782,7 @@ async function pcIncoming(wrapper) {
   let blob = w.d;
   if (w.n > 1) { const box = PC.parts[w.p] = PC.parts[w.p] || {}; box[w.i] = w.d; if (Object.keys(box).length < w.n) return; blob = Array.from({ length: w.n }, (_, i) => box[i]).join(""); delete PC.parts[w.p]; }
   let m; try { const raw = b64d(blob); m = JSON.parse(dec.decode(await crypto.subtle.decrypt({ name: "AES-GCM", iv: raw.slice(0, 12) }, PC.key, raw.slice(12)))); } catch { return; }
-  const vecchio = (m.k === "avviso" ? 12 * 3600e3 : 15 * 60e3);   // gli avvisi del PC valgono anche se apro l'app ore dopo
+  const vecchio = (m.k === "avviso" || m.k === "link" ? 12 * 3600e3 : 15 * 60e3);   // gli avvisi del PC valgono anche se apro l'app ore dopo
   if (Math.abs(Date.now() - m.ts) > vecchio || PC.seen.has(m.id)) return; PC.seen.add(m.id);
   if (m.k === "pong") { PC.online = true; if (!mode) setState(null); const wt = PC.waits["ping"]; if (wt) wt.ok(m); return; }
   const wt = PC.waits[m.re];
@@ -792,6 +792,7 @@ async function pcIncoming(wrapper) {
   if (m.k === "avviso") { pcAvviso(m); return; }
   if (m.k === "immagine") { const t = addMsg("j", m.titolo || "Dal PC", `data:${m.mime || "image/jpeg"};base64,${m.b64}`); const im = t.querySelector("img"); if (im) { im.alt = m.titolo || "Schermata del PC"; im.onclick = () => window.open(im.src, "_blank"); } return; }
   if (m.k === "file") { pcFile(m); return; }
+  if (m.k === "link") { pcLink(m); return; }
   if (m.k === "reply") showPcReply(m, true);
 }
 function pcConnect() {
@@ -823,6 +824,13 @@ function pcAvviso(m) {   // avviso spontaneo del PC: bot caduto, allarme, promem
   try { navigator.vibrate && navigator.vibrate(m.livello === "info" ? 120 : [200, 100, 200]); } catch {}
   try { if ("Notification" in window && Notification.permission === "granted" && document.hidden) new Notification("J.A.R.V.I.S.", { body: String(m.testo || "").slice(0, 180) }); } catch {}
   if (!busy && m.livello !== "info") { try { speak(m.voce || m.testo); } catch {} }
+}
+function pcLink(m) {   // azione pronta dal PC (es. WhatsApp): un tocco e parte, senza aprire niente sul PC
+  if (!/^https:\/\//.test(m.url || "")) return;
+  const t = addMsg("j", (m.titolo || "Pronto") + (m.testo ? "\n«" + m.testo + "»" : ""));
+  const a = document.createElement("a"); a.href = m.url; a.target = "_blank"; a.rel = "noopener"; a.className = "say";
+  a.textContent = "➤ " + (m.pulsante || "APRI"); a.style.cssText = "display:inline-block;margin:8px 0 0;padding:10px 16px;font-weight:700"; t.appendChild(a);
+  try { navigator.vibrate && navigator.vibrate(120); } catch {}
 }
 function pcFile(m) {
   const bin = b64d(m.b64 || ""), url = URL.createObjectURL(new Blob([bin], { type: m.mime || "application/octet-stream" }));
@@ -1034,7 +1042,7 @@ window.GALASSIA_CFG = { contenitore: "body", zoom: 1.7, ancora(visione) {
 } };
 window.VISORE_CFG = { contenitore: "body" };
 </script>
-<script src="galassia.js?v=fluida2"></script>
+<script src="galassia.js?v=fluida3"></script>
 <script src="visore.js"></script>
 <script>
 /* Mark V: la mappa delle cartelle arriva dal PC (una volta al giorno, poi resta nel telefono) */
