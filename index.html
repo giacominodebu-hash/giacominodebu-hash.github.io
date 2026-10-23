@@ -260,7 +260,7 @@ function phoneVoice(say) {
   return new Promise((ok, ko) => {
     const u = new SpeechSynthesisUtterance(say); u.lang = "it-IT"; u.rate = 1.03; u.pitch = .92;
     const v = speechSynthesis.getVoices().filter(v => /^it/i.test(v.lang));
-    u.voice = v.find(x => /luca|diego|cosimo|giorgio|male|uomo/i.test(x.name)) || v[0] || null;
+    u.voice = v.find(x => x.name === LS.get("voce_tel", "")) || v.find(x => /network|natural|online|neural|enhanced|premium|avanzat/i.test(x.name + " " + x.voiceURI)) || v.find(x => /luca|diego|cosimo|giorgio|male|uomo/i.test(x.name)) || v[0] || null;
     let started = false; const guard = setTimeout(() => { if (!started) { try { speechSynthesis.cancel(); } catch {} ko(new Error("bloccata")); } }, 1800);
     u.onstart = () => { started = true; clearTimeout(guard); setState("speaking"); ok(); };
     u.onend = () => { setState(null); afterSpeak(); };
@@ -973,11 +973,18 @@ function renderSheet() {
   mk($("lsList"), Object.entries(S.lists).map(([k, v]) => ({ k, text: k[0].toUpperCase() + k.slice(1) })), "Nessuna lista. Prova: «aggiungi latte e pane alla spesa».", x => S.lists[x.k].join(", ") || "vuota", x => { delete S.lists[x.k]; save(); renderSheet(); });
   mk($("memList"), S.memories, "Ancora niente. Dimmi «ricorda che…».", m => new Date(m.ts).toLocaleDateString("it-IT"), (m, i) => { S.memories.splice(i, 1); save(); renderSheet(); });
 }
-function openSheet() { $("pcIn").value = PC.code; $("tdIn").value = CFG.td; $("keyIn").value = CFG.key; $("qkeyIn").value = CFG.qkey; $("modelIn").value = "auto"; $("ttsIn").value = CFG.tts; $("keyNote").textContent = CFG.key ? "Chiave salvata su questo telefono." : "Incolla la tua chiave e premi Salva."; renderSheet(); $("drawer").hidden = false; }
+function openSheet() { $("pcIn").value = PC.code; $("tdIn").value = CFG.td; $("keyIn").value = CFG.key; $("qkeyIn").value = CFG.qkey; $("modelIn").value = "auto"; fillVoci(); $("keyNote").textContent = CFG.key ? "Chiave salvata su questo telefono." : "Incolla la tua chiave e premi Salva."; renderSheet(); $("drawer").hidden = false; }
 $("memBtn").onclick = openSheet;
 $("drawer").onclick = e => { if (e.target === $("drawer")) $("drawer").hidden = true; };
 $("saveKey").onclick = () => { const nc = $("pcIn").value.trim(); if (nc !== PC.code) { PC.code = nc; LS.set("pccode", nc); PC.since = "2m"; PC.seen.clear(); if (PC.es) { PC.es.close(); PC.es = null; } if (PC.on) pcPing(); } CFG.td = $("tdIn").value.trim(); LS.set("td", CFG.td); refreshTicker(); CFG.key = $("keyIn").value.trim(); CFG.qkey = $("qkeyIn").value.trim(); CFG.model = "auto"; CFG.tts = "browser"; CFG.gmodel = ""; LS.set("gmodel", "");
-  LS.set("gkey", CFG.key); LS.set("qkey", CFG.qkey); LS.set("model", CFG.model); LS.set("tts", CFG.tts); $("keyNote").textContent = "Salvato."; };
+  LS.set("gkey", CFG.key); LS.set("qkey", CFG.qkey); LS.set("model", CFG.model); LS.set("tts", CFG.tts); LS.set("voce_tel", $("ttsIn").value || ""); $("keyNote").textContent = "Salvato."; };
+function fillVoci() {   // le voci italiane installate sul telefono: quelle "online/naturali" sono molto meno robotiche
+  const sel = $("ttsIn"), cur = LS.get("voce_tel", ""); let v = [];
+  try { v = speechSynthesis.getVoices().filter(x => /^it/i.test(x.lang)); } catch {}
+  sel.innerHTML = '<option value="">Automatica (la più naturale)</option>' + v.map(x => `<option value="${x.name.replace(/"/g, "&quot;")}">${x.name.replace(/</g, "&lt;")}${x.localService === false ? " · online" : ""}</option>`).join("");
+  sel.value = v.some(x => x.name === cur) ? cur : "";
+}
+$("ttsIn").onchange = () => { LS.set("voce_tel", $("ttsIn").value || ""); try { speechSynthesis.cancel(); phoneVoice("Buongiorno Signore, questa è la mia nuova voce.").catch(() => {}); } catch {} };
 $("testKey").onclick = async () => { $("saveKey").click(); $("keyNote").textContent = "Provo…";
   try { const m = await gemModel(); await gemFetch("models/" + m + ":generateContent", { contents: [{ role: "user", parts: [{ text: "ok" }] }], generationConfig: { maxOutputTokens: 5 } });
     $("keyNote").textContent = "Chiave Gemini funzionante (" + m + ", gratis). Pronto, signore."; }
