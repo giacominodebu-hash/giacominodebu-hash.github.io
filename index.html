@@ -753,8 +753,8 @@ async function ask(text) {
 }
 
 /* ---------- modalità PC: il telefono parla, il PC lavora (via ntfy.sh, cifrato AES-GCM) ---------- */
-const PC = { code: LS.get("pccode", ""), on: LS.get("pcmode", false), since: LS.get("pcsince", "2m"), key: null, cmd: "", rep: "", es: null, parts: {}, waits: {}, seen: new Set(), online: false };
-const ALPH = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789", NTFY = "https://ntfy.sh/";
+const PC = { code: LS.get("pccode", ""), on: LS.get("pcmode", false), since: LS.get("pcsince", "2m"), since2: "2m", es2: null, srv: 0, key: null, cmd: "", rep: "", es: null, parts: {}, waits: {}, seen: new Set(), online: false };
+const ALPH = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789", NTFY = "https://ntfy.sh/", SERVERS = [NTFY, "https://ntfy.envs.net/"];   // riserva se ntfy.sh dice "troppi messaggi"
 const cleanCode = c => String(c || "").toUpperCase().split("").filter(ch => ALPH.includes(ch)).join("");
 const enc = new TextEncoder(), dec = new TextDecoder();
 const sha = async t => new Uint8Array(await crypto.subtle.digest("SHA-256", enc.encode(t)));
@@ -773,9 +773,15 @@ async function pcSend(obj) {
   const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, PC.key, enc.encode(JSON.stringify(obj))));
   const all = new Uint8Array(12 + ct.length); all.set(iv); all.set(ct, 12);
   // un messaggio solo: sopra i 4 KB ntfy lo trasforma in allegato (fino a 2 MB), così passano anche i file e si consumano meno messaggi
-  const r = await fetch(NTFY + PC.cmd, { method: "POST", body: JSON.stringify({ p: rid(), i: 0, n: 1, d: b64e(all) }) });
-  if (!r.ok) throw new Error(r.status === 429 ? "troppi messaggi oggi sul servizio gratuito ntfy, riprova più tardi" : r.status === 413 ? "file troppo grande (massimo 1 MB)" : "rete " + r.status);
-  return obj.id;
+  const body = JSON.stringify({ p: rid(), i: 0, n: 1, d: b64e(all) }); let last = null;
+  for (let k = 0; k < SERVERS.length; k++) {
+    const i = (PC.srv + k) % SERVERS.length; let r;
+    try { r = await fetch(SERVERS[i] + PC.cmd, { method: "POST", body }); } catch (e) { last = "rete"; continue; }
+    if (r.ok) { PC.srv = i; return obj.id; }
+    if (r.status === 413) throw new Error("file troppo grande (massimo 1 MB)");
+    last = r.status;   // 429 = troppi messaggi su questo server: provo la riserva
+  }
+  throw new Error(last === 429 ? "troppi messaggi oggi su entrambi i server gratuiti, riprova più tardi" : "rete " + last);
 }
 async function pcIncoming(wrapper) {
   let w; try { w = JSON.parse(wrapper); } catch { return; }
@@ -795,14 +801,23 @@ async function pcIncoming(wrapper) {
   if (m.k === "link") { pcLink(m); return; }
   if (m.k === "reply") showPcReply(m, true);
 }
+function pcConnect2() {   // ascolto anche il server di riserva (il PC risponde da dove gli è arrivata la domanda)
+  if (PC.es2) PC.es2.close();
+  const es = new EventSource(`${SERVERS[1]}${PC.rep}/sse?since=${encodeURIComponent(PC.since2)}`); PC.es2 = es;
+  es.onmessage = async e => { let ev; try { ev = JSON.parse(e.data); } catch { return; } if (ev.event !== "message") return; PC.since2 = ev.id;
+    if (ev.attachment && String(ev.attachment.url || "").startsWith(SERVERS[1] + "file/")) { try { pcIncoming(await (await fetch(ev.attachment.url)).text()); } catch {} return; }
+    pcIncoming(ev.message); };
+  es.onerror = () => { if (PC.es2 !== es) return; es.close(); PC.es2 = null; setTimeout(() => { if (PC.on && !PC.es2 && !document.hidden) pcConnect2(); }, 15000); };
+}
 function pcConnect() {
   if (PC.es) PC.es.close();
+  pcConnect2();
   const es = new EventSource(`${NTFY}${PC.rep}/sse?since=${encodeURIComponent(PC.since)}`); PC.es = es;
   es.onmessage = async e => { let ev; try { ev = JSON.parse(e.data); } catch { return; } if (ev.event !== "message") return; PC.since = ev.id; LS.set("pcsince", ev.id);
     if (ev.attachment && String(ev.attachment.url || "").startsWith("https://ntfy.sh/file/")) {   // messaggio grande (schermata, file): è un allegato
       try { pcIncoming(await (await fetch(ev.attachment.url)).text()); } catch {} return; }
     pcIncoming(ev.message); };
-  es.onerror = () => { if (PC.es !== es) return; es.close(); PC.es = null; setTimeout(() => { if (PC.on && !PC.es && !document.hidden) pcConnect(); }, 3000); };
+  es.onerror = () => { if (PC.es !== es) return; es.close(); PC.es = null; setTimeout(() => { if (PC.on && !PC.es && !document.hidden) pcConnect(); }, 8000); };
 }
 function pcWait(id, ackMs = 25000, totalMs = 20 * 60e3) {
   return new Promise((ok, ko) => {
@@ -916,7 +931,7 @@ $("pcBtn").onclick = async () => {
   PC.on = !PC.on; LS.set("pcmode", PC.on); setPcBtn();
   if (PC.on) { toast("MODALITÀ PC", "Ora parli con il JARVIS del PC: lui lavora sul computer, tu senti la risposta qui.", 6000); const ok = await pcPing();
     addMsg("s", ok ? "PC collegato. Dimmi cosa devo fare sul computer." : "Il PC non risponde ancora: deve essere acceso, con internet e JARVIS aperto (versione aggiornata)."); }
-  else { if (PC.es) PC.es.close(); PC.es = null; PC.online = false; addMsg("s", "Modalità telefono: rispondo da qui, senza il PC."); }
+  else { if (PC.es) PC.es.close(); PC.es = null; if (PC.es2) PC.es2.close(); PC.es2 = null; PC.online = false; addMsg("s", "Modalità telefono: rispondo da qui, senza il PC."); }
 };
 document.addEventListener("visibilitychange", () => { if (!document.hidden && PC.on && !PC.es) pcConnect(); });
 
